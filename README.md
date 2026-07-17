@@ -1,43 +1,44 @@
-# Stremio Stream Bridge v0.2.0 for Home Assistant
+# Stremio Stream Bridge v0.3.0 for Home Assistant
 
-Custom Home Assistant integration that combines Stremio-compatible add-ons instead of treating each add-on as an isolated library.
+Custom Home Assistant integration that combines Stremio-compatible catalog, stream and subtitle add-ons into one browsable media library.
 
 The default setup uses:
 
 - **Cinemeta** for movie/series catalogs, posters, metadata, seasons and episodes;
-- **Torrentio** as a configurable stream provider;
+- **Torrentio** as the stream provider;
+- **OpenSubtitles v3** as the subtitle provider;
 - a Stremio-compatible **stream-server** running on a PC;
-- any Home Assistant `media_player` as the playback target.
+- a Home Assistant `media_player` as the playback target.
 
-Home Assistant does not download or transcode the video. It selects a source, builds the stream-server URL when needed, and calls `media_player.play_media` on the chosen entity.
+Home Assistant does not download or transcode the video. It selects a source, builds the stream-server URL and calls `media_player.play_media` on the selected entity.
 
-## What's new in v0.2.0
+## What's new in v0.3.0
 
-- Multiple catalog/metadata add-ons and multiple stream add-ons.
-- Automatic v0.1 migration: the previous add-on remains available and Cinemeta is added as a catalog provider.
-- Native Movies and Series sections in Home Assistant Media Sources.
-- Popular, New, Featured, genre and year catalogs based on the add-on manifest.
-- Pagination using the Stremio `skip` extra.
-- Movie details, seasons and episode navigation.
-- A stream-choice screen for each movie or episode.
-- Automatic stream selection by preferred quality, maximum size, excluded release tags and seed count.
-- Manual selection of up to 40 returned streams.
-- Aggregate search:
-  - native media-source search on Home Assistant versions that expose it;
-  - `stremio_stream_bridge.search` plus a search-results folder on earlier versions.
-- Connectivity entity showing all loaded providers and partial provider errors.
+- Subtitle-provider role and default OpenSubtitles v3 manifest.
+- Automatic subtitle selection by language priority.
+- Uses stream filename, video hash and video size hints when available.
+- Optional stream-server conversion/proxy to WebVTT.
+- External subtitle tracks for Home Assistant Google Cast entities.
+- A **Play without subtitles** option in the media browser.
+- **Ideal link filter**:
+  1. applies the configured excluded words and maximum size;
+  2. restricts candidates to 1080p when available;
+  3. chooses the result with the highest number of seeders;
+  4. uses the smallest file as the tie-breaker;
+  5. falls back to 720p, then 4K, then other qualities when no 1080p result exists.
+- Automatic migration from v0.1 and v0.2 entries.
 
 ## Installation or update
 
 1. Copy `custom_components/stremio_stream_bridge` to `/config/custom_components/`.
-2. Replace the existing folder when updating from v0.1.0.
+2. Replace the existing folder when updating.
 3. Restart Home Assistant.
-4. Existing v0.1 entries are migrated automatically.
-5. Open **Settings → Devices & services → Stremio Stream Bridge → Configure** to review providers and playback preferences.
+4. Existing entries are migrated automatically.
+5. Open **Settings → Devices & services → Stremio Stream Bridge → Configure**.
 
-The PC address must be reachable from Home Assistant and from the target TV/Chromecast. Do not configure the stream-server as `127.0.0.1` or `localhost` unless Home Assistant and the player run on that same PC.
+The PC address must be reachable from Home Assistant and from the target TV/Chromecast. Do not configure stream-server as `127.0.0.1` or `localhost` unless all components run on the same computer.
 
-## Default configuration
+## Default providers
 
 ```text
 stream-server:
@@ -48,57 +49,75 @@ https://v3-cinemeta.strem.io/manifest.json
 
 Stream manifests:
 https://torrentio.strem.fun/manifest.json
+
+Subtitle manifests:
+https://opensubtitles-v3.strem.io/manifest.json
 ```
 
-You can enter multiple manifest URLs, one per line. An add-on can appear in both lists when it exposes both catalogs and streams, as in the included static add-on example.
+Multiple manifest URLs can be entered, one per line. Leave the subtitle manifest field empty to disable subtitle providers.
+
+## Ideal link filter
+
+Enable **Ideal-link filter** in the integration options. Automatic playback then ignores the normal preferred-quality selector and applies this order:
+
+```text
+1080p first
+→ highest seed count
+→ smallest file
+```
+
+Example candidates:
+
+```text
+1080p · 80 seeds · 2.1 GB
+1080p · 140 seeds · 5.8 GB
+1080p · 140 seeds · 3.4 GB  ← selected
+4K    · 500 seeds · 18 GB
+```
+
+The 3.4 GB 1080p source wins because 1080p is required when available, 140 is the highest seed count in that group, and 3.4 GB is smaller than the other 140-seed result.
+
+The maximum-size and excluded-keyword settings are still applied first. Common exclusions are `CAM, HDCAM, TS, TELECINE, SCREENER`.
+
+## Subtitles
+
+Subtitle options:
+
+- mode: `automatic` or `disabled`;
+- preferred languages, for example `spa, eng`;
+- convert/proxy subtitles through stream-server as WebVTT.
+
+For Google Cast entities, the integration sends the video and external subtitle track to the Cast Default Media Receiver. The stream-server URL looks like:
+
+```text
+http://PC:11470/subtitles.vtt?from=https%3A%2F%2Fsubtitle-source%2Ffile.srt
+```
+
+Native external subtitle support is currently limited to Home Assistant entities provided by the **Cast** integration. Other media-player integrations receive the video normally but may rely on subtitles embedded in the MKV or on player-specific support.
 
 ## Natural Home Assistant workflow
 
-Open a compatible media player and browse media:
+Open a compatible player and browse media:
 
 ```text
 Stremio Stream Bridge
 └── Stremio Media
     ├── Movies
-    │   ├── Popular
-    │   ├── New
-    │   └── Featured
     └── Series
-        ├── Popular
-        ├── New
-        └── Featured
 ```
 
-A movie opens its available streams. A series opens seasons, then episodes, then streams. The first option is **Play automatically**.
+A movie opens its stream list. A series opens seasons, episodes and then streams. At the top you get:
 
-## Playback preferences
-
-In the integration options you can set:
-
-- preferred quality: Auto, 4K, 1080p, 720p, 480p or Lowest;
-- maximum stream size in GB (`0` disables the limit);
-- comma-separated excluded terms such as `CAM, HDCAM, TS, TELECINE`;
-- default `media_player`;
-- catalog and stream provider lists.
-
-The selector parses common Torrentio-style titles for resolution, size and seeds. If every result violates the size limit, it retries without the size limit; if every result contains an excluded release tag, it finally falls back to the provider ordering rather than failing silently.
-
-## Search on Home Assistant 2026.7.x
-
-Home Assistant 2026.7.2 includes the media search data models but does not yet route search requests through `media_source`. Use the action below, then reopen **Media → Stremio Stream Bridge**:
-
-```yaml
-action: stremio_stream_bridge.search
-data:
-  query: Interstellar
-  media_type: all
+```text
+▶ Ideal link · 1080p · most seeds · smallest size
+▶ Ideal link · without subtitles
 ```
 
-A folder named `Search: Interstellar` will appear. On Home Assistant versions with media-source search support, the normal search bar is enabled automatically.
+Manual source entries remain available below those automatic options.
 
-## Other actions
+## Actions
 
-Automatic selection:
+Automatic ideal-link playback with automatic subtitles:
 
 ```yaml
 action: stremio_stream_bridge.play
@@ -108,7 +127,18 @@ data:
   media_player: media_player.tv_living
 ```
 
-Manual provider-result index:
+Automatic playback without subtitles:
+
+```yaml
+action: stremio_stream_bridge.play
+data:
+  media_type: movie
+  media_id: tt0133093
+  media_player: media_player.tv_living
+  disable_subtitles: true
+```
+
+Manual stream index:
 
 ```yaml
 action: stremio_stream_bridge.play
@@ -119,18 +149,14 @@ data:
   media_player: media_player.tv_living
 ```
 
-Direct URL or magnet:
+Search on Home Assistant versions without native media-source search:
 
 ```yaml
-action: stremio_stream_bridge.play_url
+action: stremio_stream_bridge.search
 data:
-  url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-  media_player: media_player.tv_living
+  query: Interstellar
+  media_type: all
 ```
-
-## Static add-on example
-
-`examples/static-addon` contains an editable add-on for your own videos. On Windows run `start-addon-server.bat`; it publishes a catalog, metadata and streams without Node or Docker.
 
 ## Supported Stremio sources
 
@@ -139,13 +165,15 @@ data:
 - `infoHash` with optional `fileIdx`, trackers and filename hint;
 - magnet URLs;
 - `ytId`;
-- proxy request/response headers through stream-server.
+- proxy request/response headers through stream-server;
+- subtitle objects included directly in a stream;
+- separate Stremio subtitle add-ons.
 
 ## Limitations
 
-- Playback still depends on the codecs and containers accepted by the target `media_player`.
-- Subtitle selection is not yet passed separately to the player.
-- Search support in the Home Assistant browser depends on the installed Home Assistant version.
-- Provider responses can change; the integration re-fetches a manually selected stream and matches it by URL or torrent hash before playback.
+- Playback depends on codecs and containers accepted by the target player.
+- External subtitles are currently implemented specifically for Google Cast entities.
+- Subtitle synchronization depends on the subtitle provider match; filename, hash and size hints improve it when the stream add-on supplies them.
+- Provider response formats may change.
 
 Use providers and media only where you have the right to access and reproduce the content.

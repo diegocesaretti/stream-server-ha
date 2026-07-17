@@ -9,13 +9,15 @@
           "streaming_server_url": "stream-server URL",
           "catalog_manifest_urls": "Catalog and metadata manifests",
           "stream_manifest_urls": "Stream manifests",
-          "default_media_player": "Default media player"
+          "default_media_player": "Default media player",
+          "subtitle_manifest_urls": "Subtitle manifests"
         },
         "data_description": {
           "streaming_server_url": "Example: http://192.168.1.50:11470",
           "catalog_manifest_urls": "One URL per line. Cinemeta is suggested by default.",
           "stream_manifest_urls": "One URL per line. Torrentio is suggested by default.",
-          "default_media_player": "Chromecast, Android TV or another media_player entity"
+          "default_media_player": "Chromecast, Android TV or another media_player entity",
+          "subtitle_manifest_urls": "One URL per line. OpenSubtitles v3 is suggested by default; leave empty to disable."
         }
       }
     },
@@ -29,19 +31,29 @@
   "options": {
     "step": {
       "init": {
-        "title": "Providers and automatic playback",
+        "title": "Providers, ideal link and subtitles",
         "data": {
           "default_media_player": "Default media player",
           "catalog_manifest_urls": "Catalog and metadata manifests",
           "stream_manifest_urls": "Stream manifests",
           "preferred_quality": "Preferred quality",
           "max_size_gb": "Maximum size in GB (0 = unlimited)",
-          "exclude_keywords": "Excluded keywords"
+          "exclude_keywords": "Excluded keywords",
+          "subtitle_manifest_urls": "Subtitle manifests",
+          "ideal_link_filter": "Enable ideal-link filter",
+          "subtitle_mode": "Subtitle mode",
+          "subtitle_languages": "Preferred subtitle languages",
+          "subtitle_convert_vtt": "Convert subtitles to WebVTT"
         },
         "data_description": {
           "catalog_manifest_urls": "One URL per line.",
           "stream_manifest_urls": "One URL per line.",
-          "exclude_keywords": "Comma separated, for example CAM, TS, HDCAM."
+          "exclude_keywords": "Comma separated, for example CAM, TS, HDCAM.",
+          "subtitle_manifest_urls": "One URL per line. Leave empty to disable subtitle providers.",
+          "ideal_link_filter": "When enabled, automatic playback prefers 1080p, then the highest seeder count, then the smallest file. It overrides Preferred quality.",
+          "subtitle_mode": "Automatic loads the first subtitle matching the preferred language list on Google Cast targets.",
+          "subtitle_languages": "Comma separated ISO codes in priority order, for example spa, eng.",
+          "subtitle_convert_vtt": "Use stream-server to proxy and convert subtitle files to WebVTT for Cast."
         }
       }
     },

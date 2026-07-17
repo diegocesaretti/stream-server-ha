@@ -107,6 +107,23 @@ class StremioAddonClient:
             raise StremioProtocolError("Stream response does not contain a streams list")
         return [stream for stream in streams if isinstance(stream, dict)]
 
+    async def get_subtitles(
+        self,
+        media_type: str,
+        media_id: str,
+        extra: Mapping[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return subtitle tracks for one movie or episode."""
+        path = f"subtitles/{quote(media_type, safe='')}/{quote(media_id, safe='')}"
+        if extra:
+            extra_value = urlencode(extra)
+            path += f"/{quote(extra_value, safe='=&,:%+')}"
+        payload = await self._get_json(f"{self.base_url}/{path}.json")
+        subtitles = payload.get("subtitles", [])
+        if not isinstance(subtitles, list):
+            raise StremioProtocolError("Subtitle response does not contain a subtitles list")
+        return [subtitle for subtitle in subtitles if isinstance(subtitle, dict)]
+
 
 class StremioStreamServerClient:
     """Client and URL resolver for the Stremio streaming server."""
@@ -181,6 +198,12 @@ class StremioStreamServerClient:
         trackers = query.get("tr", [])
         display_name = query.get("dn", [None])[0]
         return self.build_torrent_url(info_hash, -1, trackers, display_name)
+
+    def build_subtitle_vtt_url(self, subtitle_url: str) -> str:
+        """Proxy and convert an external subtitle to WebVTT through stream-server."""
+        if not subtitle_url.startswith(("http://", "https://")):
+            raise StremioProtocolError("Subtitle URL must use HTTP(S)")
+        return f"{self.base_url}subtitles.vtt?{urlencode({'from': subtitle_url})}"
 
     def build_torrent_url(
         self,

@@ -27,16 +27,21 @@ class LoadedAddon:
 
 
 class StremioAddonManager:
-    """Route catalog, metadata and stream requests across multiple add-ons."""
+    """Route catalog, metadata, stream and subtitle requests across add-ons."""
 
     def __init__(
         self,
         catalog_clients: list[StremioAddonClient],
         stream_clients: list[StremioAddonClient],
+        subtitle_clients: list[StremioAddonClient] | None = None,
     ) -> None:
         roles_by_url: dict[str, set[str]] = {}
         clients_by_url: dict[str, StremioAddonClient] = {}
-        for role, clients in (("catalog", catalog_clients), ("stream", stream_clients)):
+        for role, clients in (
+            ("catalog", catalog_clients),
+            ("stream", stream_clients),
+            ("subtitle", subtitle_clients or []),
+        ):
             for client in clients:
                 clients_by_url[client.manifest_url] = client
                 roles_by_url.setdefault(client.manifest_url, set()).add(role)
@@ -165,6 +170,44 @@ class StremioAddonManager:
             raise StremioProtocolError("; ".join(errors))
         return merged
 
+    async def get_subtitles(
+        self,
+        media_type: str,
+        media_id: str,
+        extra: dict[str, str] | None = None,
+        stream: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch and merge subtitle tracks from streams and subtitle providers."""
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        if stream is not None:
+            embedded = stream.get("subtitles", [])
+            if isinstance(embedded, list):
+                for subtitle in embedded:
+                    if isinstance(subtitle, dict):
+                        _append_subtitle(merged, seen, subtitle, "Stream")
+
+        providers = [
+            addon
+            for addon in self.addons
+            if "subtitle" in addon.roles
+            and supports_resource(addon.manifest, "subtitles", media_type, media_id)
+        ]
+        if not providers:
+            return merged
+
+        results = await asyncio.gather(
+            *(addon.client.get_subtitles(media_type, media_id, extra) for addon in providers),
+            return_exceptions=True,
+        )
+        for addon, result in zip(providers, results, strict=True):
+            if isinstance(result, BaseException):
+                continue
+            for subtitle in result:
+                _append_subtitle(merged, seen, subtitle, addon.name)
+        return merged
+
     async def search(
         self, query: str, media_types: tuple[str, ...] = ("movie", "series")
     ) -> list[dict[str, Any]]:
@@ -203,6 +246,40 @@ class StremioAddonManager:
                 enriched["_bridge_catalog_addon"] = addon.name
                 metas.append(enriched)
         return metas
+
+
+def _append_subtitle(
+    result: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+    subtitle: dict[str, Any],
+    provider: str,
+) -> None:
+    url = subtitle.get("url")
+    lang = subtitle.get("lang")
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return
+    if not isinstance(lang, str) or not lang:
+        lang = "und"
+    key = (url, lang.lower())
+    if key in seen:
+        return
+    seen.add(key)
+    enriched = dict(subtitle)
+    enriched["lang"] = lang.lower()
+    enriched["_bridge_addon_name"] = provider
+    result.append(enriched)
+
+
+def manifest_has_resource(manifest: dict[str, Any], resource_name: str) -> bool:
+    """Return whether a manifest declares a resource name."""
+    resources = manifest.get("resources", [])
+    if not isinstance(resources, list):
+        return False
+    return any(
+        resource == resource_name
+        or (isinstance(resource, dict) and resource.get("name") == resource_name)
+        for resource in resources
+    )
 
 
 def supports_resource(

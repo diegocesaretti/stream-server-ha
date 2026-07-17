@@ -9,13 +9,15 @@
           "streaming_server_url": "URL de stream-server",
           "catalog_manifest_urls": "Manifests de catálogo y metadatos",
           "stream_manifest_urls": "Manifests de streams",
-          "default_media_player": "Reproductor predeterminado"
+          "default_media_player": "Reproductor predeterminado",
+          "subtitle_manifest_urls": "Manifests de subtítulos"
         },
         "data_description": {
           "streaming_server_url": "Ejemplo: http://192.168.1.50:11470",
           "catalog_manifest_urls": "Una URL por línea. Cinemeta viene sugerido por defecto.",
           "stream_manifest_urls": "Una URL por línea. Torrentio viene sugerido por defecto.",
-          "default_media_player": "Chromecast, Android TV u otra entidad media_player"
+          "default_media_player": "Chromecast, Android TV u otra entidad media_player",
+          "subtitle_manifest_urls": "Una URL por línea. OpenSubtitles v3 viene sugerido; dejalo vacío para desactivar."
         }
       }
     },
@@ -29,19 +31,29 @@
   "options": {
     "step": {
       "init": {
-        "title": "Proveedores y reproducción automática",
+        "title": "Proveedores, enlace ideal y subtítulos",
         "data": {
           "default_media_player": "Reproductor predeterminado",
           "catalog_manifest_urls": "Manifests de catálogo y metadatos",
           "stream_manifest_urls": "Manifests de streams",
           "preferred_quality": "Calidad preferida",
           "max_size_gb": "Tamaño máximo en GB (0 = sin límite)",
-          "exclude_keywords": "Palabras a excluir"
+          "exclude_keywords": "Palabras a excluir",
+          "subtitle_manifest_urls": "Manifests de subtítulos",
+          "ideal_link_filter": "Activar filtro de enlace ideal",
+          "subtitle_mode": "Modo de subtítulos",
+          "subtitle_languages": "Idiomas de subtítulos preferidos",
+          "subtitle_convert_vtt": "Convertir subtítulos a WebVTT"
         },
         "data_description": {
           "catalog_manifest_urls": "Una URL por línea.",
           "stream_manifest_urls": "Una URL por línea.",
-          "exclude_keywords": "Separadas por comas, por ejemplo CAM, TS, HDCAM."
+          "exclude_keywords": "Separadas por comas, por ejemplo CAM, TS, HDCAM.",
+          "subtitle_manifest_urls": "Una URL por línea. Dejalo vacío para desactivar proveedores.",
+          "ideal_link_filter": "Cuando está activo, la reproducción automática prioriza 1080p, luego más semillas y finalmente menor tamaño. Reemplaza la calidad preferida.",
+          "subtitle_mode": "Automático carga el primer subtítulo del idioma preferido en destinos Google Cast.",
+          "subtitle_languages": "Códigos ISO separados por comas y en orden de prioridad, por ejemplo spa, eng.",
+          "subtitle_convert_vtt": "Usa stream-server para convertir y servir subtítulos como WebVTT para Cast."
         }
       }
     },

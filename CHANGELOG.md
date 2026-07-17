@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Added subtitle add-on aggregation and OpenSubtitles v3 default configuration.
+- Added preferred subtitle languages and automatic subtitle selection.
+- Added optional stream-server WebVTT conversion/proxy.
+- Added Google Cast external subtitle-track playback.
+- Added per-playback subtitle disable option.
+- Added ideal-link filter: prefer 1080p, highest seed count, then smallest file.
+- Added migration from v0.2 to subtitle-capable configuration.
+
 ## 0.2.0
 
 - Aggregate catalog, metadata and stream providers.

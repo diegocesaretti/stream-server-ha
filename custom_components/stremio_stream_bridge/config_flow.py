@@ -11,6 +11,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -23,7 +24,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .aggregator import StremioAddonManager
+from .aggregator import StremioAddonManager, manifest_has_resource
 from .api import (
     StremioAddonClient,
     StremioBridgeError,
@@ -35,21 +36,32 @@ from .const import (
     CONF_CATALOG_MANIFEST_URLS,
     CONF_DEFAULT_MEDIA_PLAYER,
     CONF_EXCLUDE_KEYWORDS,
+    CONF_IDEAL_LINK_FILTER,
     CONF_MAX_SIZE_GB,
     CONF_PREFERRED_QUALITY,
     CONF_STREAM_MANIFEST_URLS,
     CONF_STREAMING_SERVER_URL,
+    CONF_SUBTITLE_CONVERT_VTT,
+    CONF_SUBTITLE_LANGUAGES,
+    CONF_SUBTITLE_MANIFEST_URLS,
+    CONF_SUBTITLE_MODE,
     DEFAULT_CINEMETA_MANIFEST,
     DEFAULT_EXCLUDE_KEYWORDS,
+    DEFAULT_IDEAL_LINK_FILTER,
     DEFAULT_MAX_SIZE_GB,
+    DEFAULT_OPENSUBTITLES_MANIFEST,
     DEFAULT_PREFERRED_QUALITY,
+    DEFAULT_SUBTITLE_CONVERT_VTT,
+    DEFAULT_SUBTITLE_LANGUAGES,
+    DEFAULT_SUBTITLE_MODE,
     DEFAULT_TORRENTIO_MANIFEST,
     DOMAIN,
     QUALITY_OPTIONS,
+    SUBTITLE_MODE_OPTIONS,
 )
 
 
-def _as_lines(value: object, fallback: str) -> str:
+def _as_lines(value: object, fallback: str = "") -> str:
     urls = parse_manifest_urls(value)
     return "\n".join(urls) if urls else fallback
 
@@ -82,6 +94,13 @@ def _connection_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     defaults.get(CONF_STREAM_MANIFEST_URLS), DEFAULT_TORRENTIO_MANIFEST
                 ),
             ): TextSelector(TextSelectorConfig(multiline=True)),
+            vol.Optional(
+                CONF_SUBTITLE_MANIFEST_URLS,
+                default=_as_lines(
+                    defaults.get(CONF_SUBTITLE_MANIFEST_URLS),
+                    DEFAULT_OPENSUBTITLES_MANIFEST,
+                ),
+            ): TextSelector(TextSelectorConfig(multiline=True)),
             player_key: EntitySelector(EntitySelectorConfig(domain="media_player")),
         }
     )
@@ -92,26 +111,37 @@ async def _validate(
     server_url: str,
     catalog_urls: list[str],
     stream_urls: list[str],
+    subtitle_urls: list[str] | None = None,
 ) -> tuple[StremioAddonManager, dict[str, Any]]:
     session = async_get_clientsession(hass)
     server = StremioStreamServerClient(session, server_url)
     manager = StremioAddonManager(
         [StremioAddonClient(session, url) for url in catalog_urls],
         [StremioAddonClient(session, url) for url in stream_urls],
+        [StremioAddonClient(session, url) for url in subtitle_urls or []],
     )
     settings = await server.get_settings()
     await manager.async_refresh()
     if not manager.catalogs():
         raise StremioBridgeError("No configured add-on exposes catalogs")
-    if not any("stream" in addon.roles for addon in manager.addons):
+    if not any(
+        "stream" in addon.roles and manifest_has_resource(addon.manifest, "stream")
+        for addon in manager.addons
+    ):
         raise StremioBridgeError("No stream provider was loaded")
+    if subtitle_urls and not any(
+        "subtitle" in addon.roles
+        and manifest_has_resource(addon.manifest, "subtitles")
+        for addon in manager.addons
+    ):
+        raise StremioBridgeError("No subtitle provider was loaded")
     return manager, settings
 
 
 class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration from the Home Assistant UI."""
 
-    VERSION = 2
+    VERSION = 3
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -120,9 +150,18 @@ class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 server_url = normalize_url(user_input[CONF_STREAMING_SERVER_URL])
                 catalog_urls = parse_manifest_urls(user_input[CONF_CATALOG_MANIFEST_URLS])
                 stream_urls = parse_manifest_urls(user_input[CONF_STREAM_MANIFEST_URLS])
+                subtitle_urls = parse_manifest_urls(
+                    user_input.get(CONF_SUBTITLE_MANIFEST_URLS, "")
+                )
                 if not catalog_urls or not stream_urls:
                     raise StremioBridgeError("At least one catalog and stream manifest is required")
-                await _validate(self.hass, server_url, catalog_urls, stream_urls)
+                await _validate(
+                    self.hass,
+                    server_url,
+                    catalog_urls,
+                    stream_urls,
+                    subtitle_urls,
+                )
             except StremioBridgeError:
                 errors["base"] = "cannot_connect"
             else:
@@ -133,6 +172,7 @@ class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_STREAMING_SERVER_URL: server_url,
                     CONF_CATALOG_MANIFEST_URLS: catalog_urls,
                     CONF_STREAM_MANIFEST_URLS: stream_urls,
+                    CONF_SUBTITLE_MANIFEST_URLS: subtitle_urls,
                     CONF_DEFAULT_MEDIA_PLAYER: user_input[CONF_DEFAULT_MEDIA_PLAYER],
                 }
                 return self.async_create_entry(title="Stremio Media", data=data)
@@ -159,6 +199,9 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
             try:
                 catalog_urls = parse_manifest_urls(user_input[CONF_CATALOG_MANIFEST_URLS])
                 stream_urls = parse_manifest_urls(user_input[CONF_STREAM_MANIFEST_URLS])
+                subtitle_urls = parse_manifest_urls(
+                    user_input.get(CONF_SUBTITLE_MANIFEST_URLS, "")
+                )
                 if not catalog_urls or not stream_urls:
                     raise StremioBridgeError("Manifest lists cannot be empty")
                 await _validate(
@@ -166,6 +209,7 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                     self.config_entry.data[CONF_STREAMING_SERVER_URL],
                     catalog_urls,
                     stream_urls,
+                    subtitle_urls,
                 )
             except StremioBridgeError:
                 errors["base"] = "cannot_connect"
@@ -175,6 +219,7 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                         **user_input,
                         CONF_CATALOG_MANIFEST_URLS: catalog_urls,
                         CONF_STREAM_MANIFEST_URLS: stream_urls,
+                        CONF_SUBTITLE_MANIFEST_URLS: subtitle_urls,
                     }
                 )
 
@@ -197,6 +242,19 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                         current.get(CONF_STREAM_MANIFEST_URLS), DEFAULT_TORRENTIO_MANIFEST
                     ),
                 ): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional(
+                    CONF_SUBTITLE_MANIFEST_URLS,
+                    default=_as_lines(
+                        current.get(CONF_SUBTITLE_MANIFEST_URLS),
+                        DEFAULT_OPENSUBTITLES_MANIFEST,
+                    ),
+                ): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Required(
+                    CONF_IDEAL_LINK_FILTER,
+                    default=current.get(
+                        CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER
+                    ),
+                ): BooleanSelector(),
                 vol.Required(
                     CONF_PREFERRED_QUALITY,
                     default=current.get(CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY),
@@ -216,6 +274,22 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                     CONF_EXCLUDE_KEYWORDS,
                     default=current.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS),
                 ): TextSelector(TextSelectorConfig(multiline=False)),
+                vol.Required(
+                    CONF_SUBTITLE_MODE,
+                    default=current.get(CONF_SUBTITLE_MODE, DEFAULT_SUBTITLE_MODE),
+                ): SelectSelector(SelectSelectorConfig(options=SUBTITLE_MODE_OPTIONS)),
+                vol.Required(
+                    CONF_SUBTITLE_LANGUAGES,
+                    default=current.get(
+                        CONF_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGES
+                    ),
+                ): TextSelector(TextSelectorConfig(multiline=False)),
+                vol.Required(
+                    CONF_SUBTITLE_CONVERT_VTT,
+                    default=current.get(
+                        CONF_SUBTITLE_CONVERT_VTT, DEFAULT_SUBTITLE_CONVERT_VTT
+                    ),
+                ): BooleanSelector(),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

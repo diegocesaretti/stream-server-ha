@@ -32,15 +32,22 @@ from .aggregator import (
 from .api import StremioBridgeError, StremioProtocolError, guess_mime_type
 from .const import (
     CONF_EXCLUDE_KEYWORDS,
+    CONF_IDEAL_LINK_FILTER,
     CONF_MAX_SIZE_GB,
     CONF_PREFERRED_QUALITY,
     DEFAULT_EXCLUDE_KEYWORDS,
+    DEFAULT_IDEAL_LINK_FILTER,
     DEFAULT_MAX_SIZE_GB,
     DEFAULT_PREFERRED_QUALITY,
     DOMAIN,
     NAME,
 )
-from .stream_selector import choose_best_stream, stream_label
+from .stream_selector import choose_best_stream, choose_ideal_stream, stream_label
+from .subtitle_support import (
+    async_prepare_subtitle_track,
+    cast_media_source_payload,
+    is_cast_player,
+)
 
 MEDIA_SOURCE_SEARCH_SUPPORTED = (
     SearchMedia is not None and hasattr(MediaSource, "async_search_media")
@@ -99,28 +106,53 @@ class StremioBridgeMediaSource(MediaSource):
             streams = await runtime.manager.get_streams(payload["type"], payload["id"])
             if not streams:
                 raise Unresolvable("No stream provider returned a source")
+            current = {**entry.data, **entry.options}
             if payload.get("selection") == "auto":
-                stream = choose_best_stream(
-                    streams,
-                    str(
-                        entry.options.get(
-                            CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY
-                        )
-                    ),
-                    float(entry.options.get(CONF_MAX_SIZE_GB, DEFAULT_MAX_SIZE_GB)),
-                    str(
-                        entry.options.get(
-                            CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS
-                        )
-                    ),
+                max_size = float(current.get(CONF_MAX_SIZE_GB, DEFAULT_MAX_SIZE_GB))
+                excluded = str(
+                    current.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS)
                 )
+                if bool(
+                    current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)
+                ):
+                    stream = choose_ideal_stream(streams, max_size, excluded)
+                else:
+                    stream = choose_best_stream(
+                        streams,
+                        str(
+                            current.get(
+                                CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY
+                            )
+                        ),
+                        max_size,
+                        excluded,
+                    )
             else:
                 key = str(payload.get("stream_key") or "")
                 stream = find_stream_by_key(streams, key)
                 if stream is None:
                     raise Unresolvable("That stream is no longer available; reopen the list")
             url = runtime.server.resolve_stream(stream)
-            return PlayMedia(url, guess_mime_type(url))
+            mime_type = guess_mime_type(url)
+            if is_cast_player(self.hass, item.target_media_player):
+                subtitle = await async_prepare_subtitle_track(
+                    runtime.manager,
+                    runtime.server,
+                    current,
+                    payload["type"],
+                    payload["id"],
+                    stream,
+                    disabled=payload.get("subtitles") == "off",
+                )
+                cast_payload = cast_media_source_payload(
+                    url,
+                    mime_type,
+                    subtitle,
+                    title=payload.get("name"),
+                    thumbnail=payload.get("poster"),
+                )
+                return PlayMedia(cast_payload, "cast")
+            return PlayMedia(url, mime_type)
         except StremioBridgeError as err:
             raise Unresolvable(str(err)) from err
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as err:
@@ -532,20 +564,45 @@ class StremioBridgeMediaSource(MediaSource):
     ) -> BrowseMediaSource:
         children: list[BrowseMediaSource] = []
         if streams:
+            entry = self._entry(payload["entry_id"])
+            ideal_enabled = bool(
+                entry.options.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)
+            )
+            auto_title = (
+                "▶ Enlace ideal · 1080p · más semillas · menor tamaño"
+                if ideal_enabled
+                else "▶ Reproducir automáticamente"
+            )
+            base_video_payload = {
+                "kind": "video",
+                "entry_id": payload["entry_id"],
+                "type": payload["type"],
+                "id": payload["id"],
+                "selection": "auto",
+                "name": payload.get("name"),
+                "poster": payload.get("poster"),
+            }
             children.append(
                 _node(
-                    identifier=_encode(
-                        {
-                            "kind": "video",
-                            "entry_id": payload["entry_id"],
-                            "type": payload["type"],
-                            "id": payload["id"],
-                            "selection": "auto",
-                        }
-                    ),
+                    identifier=_encode(base_video_payload),
                     media_class=MediaClass.VIDEO,
                     media_content_type=MediaType.VIDEO,
-                    title="▶ Reproducir automáticamente",
+                    title=auto_title,
+                    can_play=True,
+                    can_expand=False,
+                    thumbnail=payload.get("poster"),
+                )
+            )
+            children.append(
+                _node(
+                    identifier=_encode({**base_video_payload, "subtitles": "off"}),
+                    media_class=MediaClass.VIDEO,
+                    media_content_type=MediaType.VIDEO,
+                    title=(
+                        "▶ Enlace ideal · sin subtítulos"
+                        if ideal_enabled
+                        else "▶ Automático · sin subtítulos"
+                    ),
                     can_play=True,
                     can_expand=False,
                     thumbnail=payload.get("poster"),
@@ -562,6 +619,8 @@ class StremioBridgeMediaSource(MediaSource):
                             "id": payload["id"],
                             "selection": "stream",
                             "stream_key": stream_key(stream),
+                            "name": payload.get("name"),
+                            "poster": payload.get("poster"),
                         }
                     ),
                     media_class=MediaClass.VIDEO,

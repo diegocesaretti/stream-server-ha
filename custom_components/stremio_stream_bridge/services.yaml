@@ -1,6 +1,6 @@
 play:
   name: Reproducir contenido Stremio
-  description: Consulta todos los proveedores de streams y reproduce automáticamente la mejor opción, o un índice concreto.
+  description: Consulta todos los proveedores y reproduce el enlace ideal (1080p, más semillas y menor tamaño) o un índice concreto. En Cast puede agregar subtítulos automáticamente.
   fields:
     entry_id:
       name: Entrada
@@ -33,7 +33,7 @@ play:
           domain: media_player
     stream_index:
       name: Índice de stream
-      description: Opcional. Si se omite, usa selección automática por calidad, tamaño y semillas.
+      description: Opcional. Si se omite, usa el filtro de enlace ideal configurado.
       required: false
       selector:
         number:
@@ -41,6 +41,13 @@ play:
           max: 100
           step: 1
           mode: box
+    disable_subtitles:
+      name: Desactivar subtítulos
+      description: Ignora los subtítulos automáticos sólo para esta reproducción.
+      required: false
+      default: false
+      selector:
+        boolean:
 
 play_url:
   name: Reproducir URL o magnet

@@ -46,6 +46,11 @@ def parse_quality(stream: dict[str, Any]) -> int:
 
 
 def parse_size_gb(stream: dict[str, Any]) -> float | None:
+    hints = stream.get("behaviorHints")
+    if isinstance(hints, dict):
+        video_size = hints.get("videoSize")
+        if isinstance(video_size, (int, float)) and video_size > 0:
+            return float(video_size) / (1024**3)
     match = _SIZE_RE.search(stream_text(stream))
     if not match:
         return None
@@ -89,15 +94,11 @@ def stream_label(stream: dict[str, Any], position: int | None = None) -> str:
     return text[:110] or "Stream"
 
 
-def choose_best_stream(
+def _filtered_candidates(
     streams: list[dict[str, Any]],
-    preferred_quality: str,
     max_size_gb: float,
     exclude_keywords: str,
-) -> dict[str, Any]:
-    """Select a practical stream using quality, size, release tags and seeds."""
-    if not streams:
-        raise ValueError("No streams to select")
+) -> list[dict[str, Any]]:
     excluded = [word.strip().lower() for word in exclude_keywords.split(",") if word.strip()]
 
     def allowed(stream: dict[str, Any], enforce_size: bool = True) -> bool:
@@ -117,8 +118,53 @@ def choose_best_stream(
     candidates = [stream for stream in streams if allowed(stream)]
     if not candidates:
         candidates = [stream for stream in streams if allowed(stream, enforce_size=False)]
-    if not candidates:
-        candidates = streams
+    return candidates or streams
+
+
+def choose_ideal_stream(
+    streams: list[dict[str, Any]],
+    max_size_gb: float,
+    exclude_keywords: str,
+) -> dict[str, Any]:
+    """Choose the ideal 1080p link: most seeds first, then smallest file."""
+    if not streams:
+        raise ValueError("No streams to select")
+    candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
+
+    exact_1080 = [stream for stream in candidates if parse_quality(stream) == 1080]
+    if exact_1080:
+        candidates = exact_1080
+    else:
+        # Graceful fallback: prefer 720p, then 4K, then any known/unknown quality.
+        fallback_order = {720: 0, 2160: 1, 480: 2, 360: 3, 0: 4}
+        best_bucket = min(fallback_order.get(parse_quality(stream), 5) for stream in candidates)
+        candidates = [
+            stream
+            for stream in candidates
+            if fallback_order.get(parse_quality(stream), 5) == best_bucket
+        ]
+
+    def rank(stream: dict[str, Any]) -> tuple[Any, ...]:
+        size = parse_size_gb(stream)
+        return (
+            -parse_seeders(stream),
+            size if size is not None else 9999,
+            stream_key(stream),
+        )
+
+    return min(candidates, key=rank)
+
+
+def choose_best_stream(
+    streams: list[dict[str, Any]],
+    preferred_quality: str,
+    max_size_gb: float,
+    exclude_keywords: str,
+) -> dict[str, Any]:
+    """Select a practical stream using quality, size, release tags and seeds."""
+    if not streams:
+        raise ValueError("No streams to select")
+    candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
 
     target_map = {"2160p": 2160, "1080p": 1080, "720p": 720, "480p": 480}
     target = target_map.get(preferred_quality)
@@ -134,7 +180,6 @@ def choose_best_stream(
             if quality > target:
                 return (2, quality - target)
             return (3, 9999)
-        # auto: highest known quality first.
         return (0 if quality else 1, -quality)
 
     def rank(stream: dict[str, Any]) -> tuple[Any, ...]:

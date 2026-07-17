@@ -68,3 +68,10 @@ def test_uppercase_magnet_prefix() -> None:
     client = StremioStreamServerClient(DummySession(), "http://server:11470")
     url = client.resolve_magnet("magnet:?xt=URN:BTIH:0123456789ABCDEF0123456789ABCDEF01234567")
     assert "/0123456789abcdef0123456789abcdef01234567/-1" in url
+
+
+def test_subtitle_vtt_url() -> None:
+    client = StremioStreamServerClient(DummySession(), "http://server:11470")
+    url = client.build_subtitle_vtt_url("https://subs.example/movie.srt?token=abc")
+    assert url.startswith("http://server:11470/subtitles.vtt?from=")
+    assert "https%3A%2F%2Fsubs.example%2Fmovie.srt%3Ftoken%3Dabc" in url

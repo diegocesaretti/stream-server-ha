@@ -29,13 +29,16 @@ SELECTOR = load("stream_selector")
 
 
 class FakeClient:
-    def __init__(self, url, manifest, *, catalogs=None, meta=None, streams=None):
+    def __init__(
+        self, url, manifest, *, catalogs=None, meta=None, streams=None, subtitles=None
+    ):
         self.manifest_url = url
         self.base_url = url.removesuffix("/manifest.json")
         self._manifest = manifest
         self._catalogs = catalogs or {}
         self._meta = meta or {}
         self._streams = streams or {}
+        self._subtitles = subtitles or {}
 
     async def get_manifest(self):
         return self._manifest
@@ -49,6 +52,9 @@ class FakeClient:
 
     async def get_streams(self, media_type, media_id):
         return self._streams.get((media_type, media_id), [])
+
+    async def get_subtitles(self, media_type, media_id, extra=None):
+        return self._subtitles.get((media_type, media_id), [])
 
 
 CINEMETA = {
@@ -75,6 +81,16 @@ TORRENTIO = {
         {"name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"]}
     ],
     "types": ["movie", "series"],
+    "catalogs": [],
+}
+
+OPENSUBTITLES = {
+    "id": "opensubtitles",
+    "name": "OpenSubtitles v3",
+    "version": "1",
+    "resources": ["subtitles"],
+    "types": ["movie", "series"],
+    "idPrefixes": ["tt"],
     "catalogs": [],
 }
 
@@ -152,3 +168,45 @@ async def test_manager_combines_catalog_and_stream_providers():
     assert streams[0]["_bridge_addon_name"] == "Torrentio"
     results = await manager.search("Matrix", ("movie",))
     assert results[0]["_bridge_media_type"] == "movie"
+
+
+def test_ideal_link_prefers_1080_highest_seeders_then_smallest():
+    streams = [
+        {"title": "Movie 1080p 👤 50 💾 2.0 GB"},
+        {"title": "Movie 1080p 👤 120 💾 5.0 GB"},
+        {"title": "Movie 1080p 👤 120 💾 3.0 GB"},
+        {"title": "Movie 2160p 👤 500 💾 10.0 GB"},
+    ]
+    selected = SELECTOR.choose_ideal_stream(streams, 12, "CAM, TS")
+    assert "120" in selected["title"]
+    assert "3.0 GB" in selected["title"]
+
+
+@pytest.mark.asyncio
+async def test_manager_combines_subtitle_provider_and_stream_subtitles():
+    stream_client = FakeClient(
+        "https://streams/manifest.json",
+        TORRENTIO,
+    )
+    subtitle_client = FakeClient(
+        "https://subs/manifest.json",
+        OPENSUBTITLES,
+        subtitles={
+            ("movie", "tt0133093"): [
+                {"id": "es", "url": "https://subs.example/es.srt", "lang": "spa"}
+            ]
+        },
+    )
+    manager = AGG.StremioAddonManager([], [stream_client], [subtitle_client])
+    await manager.async_refresh()
+    subtitles = await manager.get_subtitles(
+        "movie",
+        "tt0133093",
+        {"filename": "movie.mkv"},
+        {
+            "subtitles": [
+                {"id": "en", "url": "https://subs.example/en.vtt", "lang": "eng"}
+            ]
+        },
+    )
+    assert [subtitle["lang"] for subtitle in subtitles] == ["eng", "spa"]

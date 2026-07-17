@@ -23,6 +23,7 @@ from .api import (
     parse_manifest_urls,
 )
 from .const import (
+    ATTR_DISABLE_SUBTITLES,
     ATTR_ENTRY_ID,
     ATTR_MEDIA_ID,
     ATTR_MEDIA_PLAYER,
@@ -35,13 +36,17 @@ from .const import (
     CONF_DEFAULT_MEDIA_PLAYER,
     CONF_DEFAULT_STREAM_INDEX,
     CONF_EXCLUDE_KEYWORDS,
+    CONF_IDEAL_LINK_FILTER,
     CONF_MAX_SIZE_GB,
     CONF_PREFERRED_QUALITY,
     CONF_STREAM_MANIFEST_URLS,
     CONF_STREAMING_SERVER_URL,
+    CONF_SUBTITLE_MANIFEST_URLS,
     DEFAULT_CINEMETA_MANIFEST,
     DEFAULT_EXCLUDE_KEYWORDS,
+    DEFAULT_IDEAL_LINK_FILTER,
     DEFAULT_MAX_SIZE_GB,
+    DEFAULT_OPENSUBTITLES_MANIFEST,
     DEFAULT_PREFERRED_QUALITY,
     DEFAULT_TORRENTIO_MANIFEST,
     DOMAIN,
@@ -52,7 +57,12 @@ from .const import (
     SERVICE_SEARCH,
 )
 from .coordinator import StremioBridgeCoordinator
-from .stream_selector import choose_best_stream
+from .stream_selector import choose_best_stream, choose_ideal_stream
+from .subtitle_support import (
+    async_prepare_subtitle_track,
+    cast_service_extra,
+    is_cast_player,
+)
 
 
 @dataclass(slots=True)
@@ -73,6 +83,7 @@ PLAY_SCHEMA = vol.Schema(
         vol.Required(ATTR_MEDIA_ID): cv.string,
         vol.Optional(ATTR_MEDIA_PLAYER): cv.entity_id,
         vol.Optional(ATTR_STREAM_INDEX): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional(ATTR_DISABLE_SUBTITLES, default=False): cv.boolean,
     }
 )
 
@@ -101,9 +112,9 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     async def handle_play(call: ServiceCall) -> None:
         entry = _resolve_entry(hass, call.data.get(ATTR_ENTRY_ID))
         runtime: StremioBridgeRuntime = entry.runtime_data
-        streams = await runtime.manager.get_streams(
-            call.data[ATTR_MEDIA_TYPE], call.data[ATTR_MEDIA_ID]
-        )
+        media_type = call.data[ATTR_MEDIA_TYPE]
+        media_id = call.data[ATTR_MEDIA_ID]
+        streams = await runtime.manager.get_streams(media_type, media_id)
         if not streams:
             raise HomeAssistantError("No stream provider returned a playable source")
         try:
@@ -112,7 +123,28 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         except (StremioBridgeError, ValueError) as err:
             raise HomeAssistantError(str(err)) from err
         player = _resolve_player(entry, call.data.get(ATTR_MEDIA_PLAYER))
-        await _async_play_url(hass, call, player, url)
+        current = {**entry.data, **entry.options}
+        subtitle = None
+        if is_cast_player(hass, player):
+            subtitle = await async_prepare_subtitle_track(
+                runtime.manager,
+                runtime.server,
+                current,
+                media_type,
+                media_id,
+                stream,
+                disabled=bool(call.data.get(ATTR_DISABLE_SUBTITLES)),
+            )
+        title = media_id
+        thumbnail = None
+        try:
+            meta = await runtime.manager.get_meta(media_type, media_id.split(":", 1)[0])
+            title = str(meta.get("name") or meta.get("title") or media_id)
+            thumbnail = meta.get("poster") or meta.get("background")
+        except StremioBridgeError:
+            pass
+        extra = cast_service_extra(subtitle, title=title, thumbnail=thumbnail)
+        await _async_play_url(hass, call, player, url, extra=extra)
 
     async def handle_play_url(call: ServiceCall) -> None:
         entry = _resolve_entry(hass, call.data.get(ATTR_ENTRY_ID))
@@ -154,19 +186,26 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate v0.1 single-add-on entries to the aggregator format."""
-    if entry.version >= 2:
-        return True
+    """Migrate older single-add-on entries to the aggregate v0.3 format."""
     data = dict(entry.data)
-    legacy_url = data.get(CONF_ADDON_MANIFEST_URL)
-    catalog_urls = [DEFAULT_CINEMETA_MANIFEST]
-    stream_urls = [DEFAULT_TORRENTIO_MANIFEST]
-    if isinstance(legacy_url, str) and legacy_url:
-        catalog_urls.insert(0, legacy_url)
-        stream_urls = [legacy_url]
-    data[CONF_CATALOG_MANIFEST_URLS] = parse_manifest_urls(catalog_urls)
-    data[CONF_STREAM_MANIFEST_URLS] = parse_manifest_urls(stream_urls)
-    hass.config_entries.async_update_entry(entry, data=data, version=2)
+    version = entry.version
+    if version < 2:
+        legacy_url = data.get(CONF_ADDON_MANIFEST_URL)
+        catalog_urls = [DEFAULT_CINEMETA_MANIFEST]
+        stream_urls = [DEFAULT_TORRENTIO_MANIFEST]
+        if isinstance(legacy_url, str) and legacy_url:
+            catalog_urls.insert(0, legacy_url)
+            stream_urls = [legacy_url]
+        data[CONF_CATALOG_MANIFEST_URLS] = parse_manifest_urls(catalog_urls)
+        data[CONF_STREAM_MANIFEST_URLS] = parse_manifest_urls(stream_urls)
+        version = 2
+    if version < 3:
+        data.setdefault(
+            CONF_SUBTITLE_MANIFEST_URLS,
+            parse_manifest_urls([DEFAULT_OPENSUBTITLES_MANIFEST]),
+        )
+        version = 3
+    hass.config_entries.async_update_entry(entry, data=data, version=version)
     return True
 
 
@@ -180,9 +219,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stream_urls = parse_manifest_urls(
         current.get(CONF_STREAM_MANIFEST_URLS, [DEFAULT_TORRENTIO_MANIFEST])
     )
+    subtitle_urls = parse_manifest_urls(
+        current.get(CONF_SUBTITLE_MANIFEST_URLS, [DEFAULT_OPENSUBTITLES_MANIFEST])
+    )
     manager = StremioAddonManager(
         [StremioAddonClient(session, url) for url in catalog_urls],
         [StremioAddonClient(session, url) for url in stream_urls],
+        [StremioAddonClient(session, url) for url in subtitle_urls],
     )
     server = StremioStreamServerClient(session, entry.data[CONF_STREAMING_SERVER_URL])
     coordinator = StremioBridgeCoordinator(hass, manager, server)
@@ -212,16 +255,19 @@ def _select_stream(
                 f"{len(streams)} stream(s)"
             )
         return streams[requested_index]
-    # Retain the old v0.1 default-index behavior until the user saves v0.2 options.
     if CONF_DEFAULT_STREAM_INDEX in entry.options:
         legacy_index = int(entry.options[CONF_DEFAULT_STREAM_INDEX])
         if legacy_index < len(streams):
             return streams[legacy_index]
+    max_size = float(entry.options.get(CONF_MAX_SIZE_GB, DEFAULT_MAX_SIZE_GB))
+    excluded = str(entry.options.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS))
+    if bool(entry.options.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)):
+        return choose_ideal_stream(streams, max_size, excluded)
     return choose_best_stream(
         streams,
         str(entry.options.get(CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY)),
-        float(entry.options.get(CONF_MAX_SIZE_GB, DEFAULT_MAX_SIZE_GB)),
-        str(entry.options.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS)),
+        max_size,
+        excluded,
     )
 
 
@@ -268,15 +314,20 @@ async def _async_play_url(
     call: ServiceCall,
     player: str,
     url: str,
+    *,
+    extra: dict[str, Any] | None = None,
 ) -> None:
+    data: dict[str, Any] = {
+        ATTR_ENTITY_ID: player,
+        "media_content_id": url,
+        "media_content_type": guess_mime_type(url),
+    }
+    if extra:
+        data["extra"] = extra
     await hass.services.async_call(
         "media_player",
         "play_media",
-        {
-            ATTR_ENTITY_ID: player,
-            "media_content_id": url,
-            "media_content_type": guess_mime_type(url),
-        },
+        data,
         blocking=True,
         context=call.context,
     )
