@@ -1,17 +1,23 @@
-"""Prepare a player-compatible media URL and MIME type."""
+"""Prepare player-compatible media URLs and validate automatic candidates."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+import logging
 from typing import Any
 
-from .api import StremioStreamServerClient, guess_stream_mime_type
+from .api import (
+    StremioBridgeError,
+    StremioStreamServerClient,
+    guess_stream_mime_type,
+)
 from .const import (
     CONF_AUDIO_MODE,
     DEFAULT_AUDIO_MODE,
     PROFILE_SPORTS,
 )
 
+_LOGGER = logging.getLogger(__name__)
 _HLS_MIME = "application/vnd.apple.mpegurl"
 _INCOMPATIBLE_AUDIO_MARKERS = (
     "dts",
@@ -67,8 +73,8 @@ def prepare_playback(
     if mode == "direct":
         return resolved_url, guess_stream_mime_type(stream, resolved_url)
 
-    # Sports add-ons commonly return an already prepared live HLS feed. Do not
-    # wrap it again unless the user explicitly asks for forced transcoding.
+    # Existing HLS/DASH feeds should stay as supplied. Wrapping live playlists in
+    # hlsv2 can break tokens, Referer headers and relative segment URLs.
     force = mode == "force_transcode"
     should_wrap = force or (
         profile != PROFILE_SPORTS and needs_compatible_hls(stream, resolved_url)
@@ -83,3 +89,47 @@ def prepare_playback(
             _HLS_MIME,
         )
     return resolved_url, guess_stream_mime_type(stream, resolved_url)
+
+
+async def prepare_first_playable(
+    server: StremioStreamServerClient,
+    candidates: Sequence[dict[str, Any]],
+    options: Mapping[str, Any],
+    *,
+    profile: str,
+) -> tuple[dict[str, Any], str, str]:
+    """Resolve ranked candidates and skip dead proxied playlists."""
+    if not candidates:
+        raise StremioBridgeError("No stream candidates are available")
+
+    failures: list[str] = []
+    for position, stream in enumerate(candidates):
+        try:
+            url, mime_type = prepare_playback(server, stream, options, profile=profile)
+        except StremioBridgeError as err:
+            failures.append(str(err))
+            continue
+
+        valid, reason = await server.async_validate_media_url(url, mime_type)
+        if valid:
+            if position:
+                _LOGGER.info(
+                    "Selected fallback stream %s after %s rejected candidate(s)",
+                    position + 1,
+                    position,
+                )
+            _LOGGER.debug("Prepared stream URL %s with MIME %s", url, mime_type)
+            return stream, url, mime_type
+
+        failures.append(reason or "playlist validation failed")
+        _LOGGER.warning(
+            "Skipping unavailable automatic stream candidate %s: %s",
+            position + 1,
+            reason or "validation failed",
+        )
+
+    detail = "; ".join(failures[-3:])
+    raise StremioBridgeError(
+        "All automatically selected stream links failed validation"
+        + (f": {detail}" if detail else "")
+    )

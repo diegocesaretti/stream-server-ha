@@ -82,7 +82,9 @@ async def test_latin_profile_mirrors_default_catalog_and_uses_only_latin_streams
     latin = FakeClient(
         "https://latin/manifest.json",
         LATIN,
-        streams={("movie", "tt1"): [{"url": "https://video.example/latino.mp4"}]},
+        streams={
+            ("movie", "tt1"): [{"url": "https://video.example/latino.mp4"}]
+        },
     )
     manager = AGG.StremioAddonManager([catalog], [], latin_clients=[latin])
     await manager.async_refresh()
@@ -161,27 +163,41 @@ def test_force_transcode_audio_mode_sets_force_flag():
     assert mime == "application/vnd.apple.mpegurl"
 
 
-def test_v041_user_specific_defaults():
-    assert CONST.DEFAULT_STREAMING_SERVER_URL == "http://192.168.1.145:11470"
-    assert CONST.DEFAULT_LATIN_MANIFEST == "https://cinecalidad-stremio-addon.fly.dev/manifest.json"
-    assert CONST.DEFAULT_SPORTS_MANIFEST == "https://stremverse1.alwaysdata.net/manifest.json"
+def test_hls_url_mime_wins_over_filename_hint():
+    stream = {
+        "url": "https://video.example/live.m3u8",
+        "behaviorHints": {"filename": "movie.mp4"},
+    }
+    assert (
+        API.guess_stream_mime_type(stream, "http://server:11470/proxy/options/live.m3u8")
+        == "application/vnd.apple.mpegurl"
+    )
 
 
 @pytest.mark.asyncio
-async def test_optional_provider_failure_does_not_discard_working_core_addons():
-    class FailingClient(FakeClient):
-        async def get_manifest(self):
-            raise API.StremioConnectionError("optional provider offline")
+async def test_automatic_playback_skips_dead_proxied_playlist():
+    class FakeServer:
+        def resolve_stream(self, stream):
+            return stream["url"]
 
-    catalog = FakeClient("https://catalog/manifest.json", CATALOG)
-    default_stream = FakeClient("https://stream/manifest.json", LATIN)
-    failing_latin = FailingClient("https://latin/manifest.json", LATIN)
-    manager = AGG.StremioAddonManager(
-        [catalog],
-        [default_stream],
-        latin_clients=[failing_latin],
+        def build_compatible_hls_url(self, media_url, **kwargs):
+            return media_url
+
+        async def async_validate_media_url(self, url, mime_type):
+            if "dead" in url:
+                return False, "HTTP 403"
+            return True, None
+
+    candidates = [
+        {"url": "http://server:11470/proxy/options/dead.m3u8"},
+        {"url": "http://server:11470/proxy/options/working.m3u8"},
+    ]
+    stream, url, mime = await PLAYBACK.prepare_first_playable(
+        FakeServer(),
+        candidates,
+        {CONST.CONF_AUDIO_MODE: "direct"},
+        profile=CONST.PROFILE_SPORTS,
     )
-    addons = await manager.async_refresh()
-    assert len(addons) == 2
-    assert manager.catalogs("movie")
-    assert manager.errors["https://latin/manifest.json"] == "optional provider offline"
+    assert stream is candidates[1]
+    assert url.endswith("working.m3u8")
+    assert mime == "application/vnd.apple.mpegurl"

@@ -126,7 +126,9 @@ async def async_prepare_subtitle_track(
         )
         return None
     raw_url = str(subtitle["url"])
-    convert = bool(options.get(CONF_SUBTITLE_CONVERT_VTT, DEFAULT_SUBTITLE_CONVERT_VTT))
+    convert = bool(
+        options.get(CONF_SUBTITLE_CONVERT_VTT, DEFAULT_SUBTITLE_CONVERT_VTT)
+    )
     if convert:
         try:
             proxy_url = await proxy.async_prepare_url(

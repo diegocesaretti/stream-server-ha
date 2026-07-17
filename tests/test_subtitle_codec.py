@@ -7,7 +7,10 @@ import gzip
 from zipfile import ZipFile
 
 PATH = (
-    Path(__file__).parents[1] / "custom_components" / "stremio_stream_bridge" / "subtitle_codec.py"
+    Path(__file__).parents[1]
+    / "custom_components"
+    / "stremio_stream_bridge"
+    / "subtitle_codec.py"
 )
 SPEC = spec_from_file_location("stremio_stream_bridge_subtitle_codec", PATH)
 assert SPEC is not None and SPEC.loader is not None

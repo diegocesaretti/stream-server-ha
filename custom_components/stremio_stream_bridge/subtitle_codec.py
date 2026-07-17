@@ -78,9 +78,7 @@ def subtitle_to_webvtt(text: str) -> str:
 
     upper_head = normalized[:200].upper()
     if "[SCRIPT INFO]" in upper_head or "[V4+ STYLES]" in upper_head:
-        raise SubtitleDecodeError(
-            "ASS/SSA subtitles are not supported by the lightweight converter"
-        )
+        raise SubtitleDecodeError("ASS/SSA subtitles are not supported by the lightweight converter")
 
     lines = normalized.split("\n")
     result = ["WEBVTT", ""]

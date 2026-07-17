@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 from typing import Any
 
 import voluptuous as vol
@@ -56,13 +55,10 @@ from .const import (
     DEFAULT_CINEMETA_MANIFEST,
     DEFAULT_EXCLUDE_KEYWORDS,
     DEFAULT_IDEAL_LINK_FILTER,
-    DEFAULT_LATIN_MANIFEST,
     DEFAULT_MAX_SIZE_GB,
     DEFAULT_OPENSUBTITLES_MANIFEST,
     DEFAULT_PLAY_IDEAL_ON_SELECT,
     DEFAULT_PREFERRED_QUALITY,
-    DEFAULT_SPORTS_MANIFEST,
-    DEFAULT_STREAMING_SERVER_URL,
     DEFAULT_SUBTITLE_BASE_URL,
     DEFAULT_SUBTITLE_CONVERT_VTT,
     DEFAULT_SUBTITLE_LANGUAGES,
@@ -75,24 +71,10 @@ from .const import (
     SUBTITLE_MODE_OPTIONS,
 )
 
-_LOGGER = logging.getLogger(__name__)
 
-
-class FlowValidationError(StremioBridgeError):
-    """Validation error associated with a specific form field."""
-
-    def __init__(self, field: str, code: str, detail: str) -> None:
-        super().__init__(detail)
-        self.field = field
-        self.code = code
-        self.detail = detail
-
-
-def _as_lines(value: object | None, fallback: str = "") -> str:
-    """Convert stored manifest lists to UI text while preserving explicit blanks."""
-    if value is None:
-        return fallback
-    return "\n".join(parse_manifest_urls(value))
+def _as_lines(value: object, fallback: str = "") -> str:
+    urls = parse_manifest_urls(value)
+    return "\n".join(urls) if urls else fallback
 
 
 def _clients(session, urls: list[str]) -> list[StremioAddonClient]:
@@ -113,20 +95,18 @@ def _connection_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         {
             vol.Required(
                 CONF_STREAMING_SERVER_URL,
-                default=defaults.get(CONF_STREAMING_SERVER_URL, DEFAULT_STREAMING_SERVER_URL),
+                default=defaults.get(CONF_STREAMING_SERVER_URL, "http://192.168.1.50:11470"),
             ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
             vol.Required(
                 CONF_CATALOG_MANIFEST_URLS,
                 default=_as_lines(
-                    defaults.get(CONF_CATALOG_MANIFEST_URLS),
-                    DEFAULT_CINEMETA_MANIFEST,
+                    defaults.get(CONF_CATALOG_MANIFEST_URLS), DEFAULT_CINEMETA_MANIFEST
                 ),
             ): TextSelector(TextSelectorConfig(multiline=True)),
             vol.Required(
                 CONF_STREAM_MANIFEST_URLS,
                 default=_as_lines(
-                    defaults.get(CONF_STREAM_MANIFEST_URLS),
-                    DEFAULT_TORRENTIO_MANIFEST,
+                    defaults.get(CONF_STREAM_MANIFEST_URLS), DEFAULT_TORRENTIO_MANIFEST
                 ),
             ): TextSelector(TextSelectorConfig(multiline=True)),
             vol.Optional(
@@ -138,26 +118,15 @@ def _connection_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): TextSelector(TextSelectorConfig(multiline=True)),
             vol.Optional(
                 CONF_LATIN_MANIFEST_URLS,
-                default=_as_lines(
-                    defaults.get(CONF_LATIN_MANIFEST_URLS),
-                    DEFAULT_LATIN_MANIFEST,
-                ),
+                default=_as_lines(defaults.get(CONF_LATIN_MANIFEST_URLS)),
             ): TextSelector(TextSelectorConfig(multiline=True)),
             vol.Optional(
                 CONF_SPORTS_MANIFEST_URLS,
-                default=_as_lines(
-                    defaults.get(CONF_SPORTS_MANIFEST_URLS),
-                    DEFAULT_SPORTS_MANIFEST,
-                ),
+                default=_as_lines(defaults.get(CONF_SPORTS_MANIFEST_URLS)),
             ): TextSelector(TextSelectorConfig(multiline=True)),
             player_key: EntitySelector(EntitySelectorConfig(domain="media_player")),
         }
     )
-
-
-def _errors_for_urls(manager: StremioAddonManager, urls: list[str]) -> str:
-    messages = [f"{url}: {manager.errors[url]}" for url in urls if url in manager.errors]
-    return "; ".join(messages)
 
 
 async def _validate(
@@ -169,7 +138,6 @@ async def _validate(
     latin_urls: list[str] | None = None,
     sports_urls: list[str] | None = None,
 ) -> tuple[StremioAddonManager, dict[str, Any]]:
-    """Validate required providers and collect non-blocking connectivity warnings."""
     session = async_get_clientsession(hass)
     server = StremioStreamServerClient(session, server_url)
     manager = StremioAddonManager(
@@ -179,121 +147,61 @@ async def _validate(
         _clients(session, latin_urls or []),
         _clients(session, sports_urls or []),
     )
-
-    server_error: str | None = None
-    settings: dict[str, Any] = {}
-    try:
-        settings = await server.get_settings()
-    except StremioBridgeError as err:
-        # Let the entry be created so the connectivity sensor and diagnostics action
-        # can explain LAN binding/firewall problems. Direct HTTP sports streams can
-        # still work while the torrent server is offline.
-        server_error = str(err)
-        _LOGGER.warning("Stream-server validation warning: %s", err)
-
-    try:
-        await manager.async_refresh()
-    except StremioBridgeError as err:
-        raise FlowValidationError(
-            CONF_CATALOG_MANIFEST_URLS,
-            "no_addons_loaded",
-            str(err),
-        ) from err
-
+    settings = await server.get_settings()
+    await manager.async_refresh()
     if not manager.catalogs():
-        detail = _errors_for_urls(manager, catalog_urls) or (
-            "No configured catalog add-on declares a browsable catalog"
-        )
-        raise FlowValidationError(
-            CONF_CATALOG_MANIFEST_URLS,
-            "catalog_provider_unavailable",
-            detail,
-        )
-
+        raise StremioBridgeError("No configured add-on exposes catalogs")
     if not any(
         "stream" in addon.roles and manifest_has_resource(addon.manifest, "stream")
         for addon in manager.addons
     ):
-        detail = _errors_for_urls(manager, stream_urls) or (
-            "No configured default provider declares the stream resource"
-        )
-        raise FlowValidationError(
-            CONF_STREAM_MANIFEST_URLS,
-            "stream_provider_unavailable",
-            detail,
-        )
-
-    warnings: dict[str, str] = {}
-    optional_groups = {
-        CONF_SUBTITLE_MANIFEST_URLS: subtitle_urls or [],
-        CONF_LATIN_MANIFEST_URLS: latin_urls or [],
-        CONF_SPORTS_MANIFEST_URLS: sports_urls or [],
-    }
-    for field, urls in optional_groups.items():
-        if detail := _errors_for_urls(manager, urls):
-            warnings[field] = detail
-
+        raise StremioBridgeError("No default stream provider was loaded")
+    if subtitle_urls and not any(
+        "subtitle" in addon.roles
+        and manifest_has_resource(addon.manifest, "subtitles")
+        for addon in manager.addons
+    ):
+        raise StremioBridgeError("No subtitle provider was loaded")
     if latin_urls and not any(
         PROFILE_LATIN in addon.roles and manifest_has_resource(addon.manifest, "stream")
         for addon in manager.addons
     ):
-        warnings.setdefault(
-            CONF_LATIN_MANIFEST_URLS,
-            "No currently loaded Latin add-on declares the stream resource",
-        )
-
+        raise StremioBridgeError("The Latin provider does not expose streams")
     if sports_urls:
         if not any(
             PROFILE_SPORTS in addon.roles and manifest_has_resource(addon.manifest, "stream")
             for addon in manager.addons
         ):
-            warnings.setdefault(
-                CONF_SPORTS_MANIFEST_URLS,
-                "No currently loaded sports add-on declares the stream resource",
-            )
-        elif not manager.catalogs(profile=PROFILE_SPORTS):
-            warnings.setdefault(
-                CONF_SPORTS_MANIFEST_URLS,
-                "The sports add-on loaded but did not expose a browsable catalog",
-            )
-
-    for field, detail in warnings.items():
-        _LOGGER.warning("Optional provider warning for %s: %s", field, detail)
-
-    return manager, {
-        "settings": settings,
-        "server_online": server_error is None,
-        "server_error": server_error,
-        "warnings": warnings,
-    }
+            raise StremioBridgeError("The sports provider does not expose streams")
+        if not manager.catalogs(profile=PROFILE_SPORTS):
+            raise StremioBridgeError("The sports provider does not expose a browsable catalog")
+    return manager, settings
 
 
 class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration from the Home Assistant UI."""
 
-    VERSION = 5
+    VERSION = 4
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
                 server_url = normalize_url(user_input[CONF_STREAMING_SERVER_URL])
                 catalog_urls = parse_manifest_urls(user_input[CONF_CATALOG_MANIFEST_URLS])
                 stream_urls = parse_manifest_urls(user_input[CONF_STREAM_MANIFEST_URLS])
-                subtitle_urls = parse_manifest_urls(user_input.get(CONF_SUBTITLE_MANIFEST_URLS, ""))
+                subtitle_urls = parse_manifest_urls(
+                    user_input.get(CONF_SUBTITLE_MANIFEST_URLS, "")
+                )
                 latin_urls = parse_manifest_urls(user_input.get(CONF_LATIN_MANIFEST_URLS, ""))
-                sports_urls = parse_manifest_urls(user_input.get(CONF_SPORTS_MANIFEST_URLS, ""))
-                if not catalog_urls:
-                    raise FlowValidationError(
-                        CONF_CATALOG_MANIFEST_URLS,
-                        "catalog_provider_unavailable",
-                        "At least one catalog manifest is required",
-                    )
-                if not stream_urls:
-                    raise FlowValidationError(
-                        CONF_STREAM_MANIFEST_URLS,
-                        "stream_provider_unavailable",
-                        "At least one stream manifest is required",
+                sports_urls = parse_manifest_urls(
+                    user_input.get(CONF_SPORTS_MANIFEST_URLS, "")
+                )
+                if not catalog_urls or not stream_urls:
+                    raise StremioBridgeError(
+                        "At least one catalog and stream manifest is required"
                     )
                 await _validate(
                     self.hass,
@@ -304,12 +212,8 @@ class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     latin_urls,
                     sports_urls,
                 )
-            except FlowValidationError as err:
-                errors[err.field] = err.code
-                _LOGGER.warning("Configuration validation failed: %s", err.detail)
-            except StremioBridgeError as err:
+            except StremioBridgeError:
                 errors["base"] = "cannot_connect"
-                _LOGGER.warning("Configuration validation failed: %s", err)
             else:
                 unique_id = hashlib.sha256(server_url.encode()).hexdigest()
                 await self.async_set_unique_id(unique_id)
@@ -341,48 +245,38 @@ class StremioStreamBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
     """Change providers and playback preferences, then reload automatically."""
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                server_url = normalize_url(user_input[CONF_STREAMING_SERVER_URL])
                 catalog_urls = parse_manifest_urls(user_input[CONF_CATALOG_MANIFEST_URLS])
                 stream_urls = parse_manifest_urls(user_input[CONF_STREAM_MANIFEST_URLS])
-                subtitle_urls = parse_manifest_urls(user_input.get(CONF_SUBTITLE_MANIFEST_URLS, ""))
+                subtitle_urls = parse_manifest_urls(
+                    user_input.get(CONF_SUBTITLE_MANIFEST_URLS, "")
+                )
                 latin_urls = parse_manifest_urls(user_input.get(CONF_LATIN_MANIFEST_URLS, ""))
-                sports_urls = parse_manifest_urls(user_input.get(CONF_SPORTS_MANIFEST_URLS, ""))
-                if not catalog_urls:
-                    raise FlowValidationError(
-                        CONF_CATALOG_MANIFEST_URLS,
-                        "catalog_provider_unavailable",
-                        "At least one catalog manifest is required",
-                    )
-                if not stream_urls:
-                    raise FlowValidationError(
-                        CONF_STREAM_MANIFEST_URLS,
-                        "stream_provider_unavailable",
-                        "At least one stream manifest is required",
-                    )
+                sports_urls = parse_manifest_urls(
+                    user_input.get(CONF_SPORTS_MANIFEST_URLS, "")
+                )
+                if not catalog_urls or not stream_urls:
+                    raise StremioBridgeError("Manifest lists cannot be empty")
                 await _validate(
                     self.hass,
-                    server_url,
+                    self.config_entry.data[CONF_STREAMING_SERVER_URL],
                     catalog_urls,
                     stream_urls,
                     subtitle_urls,
                     latin_urls,
                     sports_urls,
                 )
-            except FlowValidationError as err:
-                errors[err.field] = err.code
-                _LOGGER.warning("Options validation failed: %s", err.detail)
-            except StremioBridgeError as err:
+            except StremioBridgeError:
                 errors["base"] = "cannot_connect"
-                _LOGGER.warning("Options validation failed: %s", err)
             else:
                 return self.async_create_entry(
                     data={
                         **user_input,
-                        CONF_STREAMING_SERVER_URL: server_url,
                         CONF_CATALOG_MANIFEST_URLS: catalog_urls,
                         CONF_STREAM_MANIFEST_URLS: stream_urls,
                         CONF_SUBTITLE_MANIFEST_URLS: subtitle_urls,
@@ -399,36 +293,24 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                     default=current.get(CONF_DEFAULT_MEDIA_PLAYER),
                 ): EntitySelector(EntitySelectorConfig(domain="media_player")),
                 vol.Required(
-                    CONF_STREAMING_SERVER_URL,
-                    default=current.get(CONF_STREAMING_SERVER_URL, DEFAULT_STREAMING_SERVER_URL),
-                ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
-                vol.Required(
                     CONF_CATALOG_MANIFEST_URLS,
                     default=_as_lines(
-                        current.get(CONF_CATALOG_MANIFEST_URLS),
-                        DEFAULT_CINEMETA_MANIFEST,
+                        current.get(CONF_CATALOG_MANIFEST_URLS), DEFAULT_CINEMETA_MANIFEST
                     ),
                 ): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Required(
                     CONF_STREAM_MANIFEST_URLS,
                     default=_as_lines(
-                        current.get(CONF_STREAM_MANIFEST_URLS),
-                        DEFAULT_TORRENTIO_MANIFEST,
+                        current.get(CONF_STREAM_MANIFEST_URLS), DEFAULT_TORRENTIO_MANIFEST
                     ),
                 ): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional(
                     CONF_LATIN_MANIFEST_URLS,
-                    default=_as_lines(
-                        current.get(CONF_LATIN_MANIFEST_URLS),
-                        DEFAULT_LATIN_MANIFEST,
-                    ),
+                    default=_as_lines(current.get(CONF_LATIN_MANIFEST_URLS)),
                 ): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional(
                     CONF_SPORTS_MANIFEST_URLS,
-                    default=_as_lines(
-                        current.get(CONF_SPORTS_MANIFEST_URLS),
-                        DEFAULT_SPORTS_MANIFEST,
-                    ),
+                    default=_as_lines(current.get(CONF_SPORTS_MANIFEST_URLS)),
                 ): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional(
                     CONF_SUBTITLE_MANIFEST_URLS,
@@ -439,11 +321,15 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                 ): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Required(
                     CONF_PLAY_IDEAL_ON_SELECT,
-                    default=current.get(CONF_PLAY_IDEAL_ON_SELECT, DEFAULT_PLAY_IDEAL_ON_SELECT),
+                    default=current.get(
+                        CONF_PLAY_IDEAL_ON_SELECT, DEFAULT_PLAY_IDEAL_ON_SELECT
+                    ),
                 ): BooleanSelector(),
                 vol.Required(
                     CONF_IDEAL_LINK_FILTER,
-                    default=current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER),
+                    default=current.get(
+                        CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER
+                    ),
                 ): BooleanSelector(),
                 vol.Required(
                     CONF_AUDIO_MODE,
@@ -474,11 +360,15 @@ class StremioStreamBridgeOptionsFlow(config_entries.OptionsFlowWithReload):
                 ): SelectSelector(SelectSelectorConfig(options=SUBTITLE_MODE_OPTIONS)),
                 vol.Required(
                     CONF_SUBTITLE_LANGUAGES,
-                    default=current.get(CONF_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGES),
+                    default=current.get(
+                        CONF_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGES
+                    ),
                 ): TextSelector(TextSelectorConfig(multiline=False)),
                 vol.Required(
                     CONF_SUBTITLE_CONVERT_VTT,
-                    default=current.get(CONF_SUBTITLE_CONVERT_VTT, DEFAULT_SUBTITLE_CONVERT_VTT),
+                    default=current.get(
+                        CONF_SUBTITLE_CONVERT_VTT, DEFAULT_SUBTITLE_CONVERT_VTT
+                    ),
                 ): BooleanSelector(),
                 vol.Optional(
                     CONF_SUBTITLE_BASE_URL,

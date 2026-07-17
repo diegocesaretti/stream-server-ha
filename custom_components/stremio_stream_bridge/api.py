@@ -13,8 +13,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-REQUEST_TIMEOUT = ClientTimeout(total=25, connect=10)
-SERVER_REQUEST_TIMEOUT = ClientTimeout(total=5, connect=3)
+REQUEST_TIMEOUT = ClientTimeout(total=20)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -62,8 +61,7 @@ class StremioAddonClient:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
         except (ClientError, TimeoutError, ValueError) as err:
-            detail = str(err) or type(err).__name__
-            raise StremioConnectionError(f"Failed requesting {url}: {detail}") from err
+            raise StremioConnectionError(f"Failed requesting {url}: {err}") from err
 
         if not isinstance(payload, dict):
             raise StremioProtocolError(f"Expected JSON object from {url}")
@@ -153,16 +151,50 @@ class StremioStreamServerClient:
         """Check server connectivity and return settings."""
         url = f"{self.base_url}settings"
         try:
-            async with self._session.get(url, timeout=SERVER_REQUEST_TIMEOUT) as response:
+            async with self._session.get(url, timeout=REQUEST_TIMEOUT) as response:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
         except (ClientError, TimeoutError, ValueError) as err:
-            detail = str(err) or type(err).__name__
-            raise StremioConnectionError(f"Failed requesting {url}: {detail}") from err
+            raise StremioConnectionError(f"Failed requesting {url}: {err}") from err
 
         if not isinstance(payload, dict):
             raise StremioProtocolError("Streaming server settings response is not an object")
         return payload
+
+    async def async_validate_media_url(self, url: str, mime_type: str) -> tuple[bool, str | None]:
+        """Lightly validate proxied HLS/DASH before handing it to Cast.
+
+        Torrent and hlsv2 URLs are deliberately not probed because opening them may
+        start a download/transcode. The important regression case is an external
+        playlist routed through stream-server's /proxy endpoint.
+        """
+        lowered = url.lower().split("?", 1)[0]
+        is_playlist = mime_type in {
+            "application/vnd.apple.mpegurl",
+            "application/x-mpegurl",
+            "application/dash+xml",
+        } or lowered.endswith((".m3u8", ".mpd"))
+        if not is_playlist or "/proxy/" not in url:
+            return True, None
+
+        timeout = ClientTimeout(total=12)
+        try:
+            async with self._session.get(url, timeout=timeout) as response:
+                if response.status >= 400:
+                    return False, f"HTTP {response.status}"
+                payload = await response.content.read(131072)
+        except (ClientError, TimeoutError) as err:
+            return False, str(err)
+
+        if lowered.endswith(".m3u8") or "mpegurl" in mime_type:
+            text = payload.decode("utf-8", errors="ignore")
+            if "#EXTM3U" not in text:
+                return False, "response is not an HLS manifest"
+        elif lowered.endswith(".mpd") or mime_type == "application/dash+xml":
+            text = payload.decode("utf-8", errors="ignore").lower()
+            if "<mpd" not in text:
+                return False, "response is not a DASH manifest"
+        return True, None
 
     def resolve_stream(self, stream: Mapping[str, Any]) -> str:
         """Convert a Stremio stream object into a URL playable by a media player."""
@@ -339,7 +371,18 @@ def guess_mime_type(url: str) -> str:
 
 
 def guess_stream_mime_type(stream: Mapping[str, Any], resolved_url: str) -> str:
-    """Prefer the add-on filename when the resolved stream URL has no extension."""
+    """Return the MIME type of the actual resolved resource.
+
+    A number of live-TV add-ons attach a movie-like filename hint to an HLS URL.
+    Cast must receive the playlist MIME type, so explicit `.m3u8` and `.mpd` URLs
+    always win over behaviorHints.filename.
+    """
+    lowered_url = resolved_url.lower().split("?", 1)[0]
+    if lowered_url.endswith(".m3u8"):
+        return "application/vnd.apple.mpegurl"
+    if lowered_url.endswith(".mpd"):
+        return "application/dash+xml"
+
     hints = stream.get("behaviorHints")
     if isinstance(hints, Mapping):
         filename = hints.get("filename")

@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Crear biblioteca Stremio agregada",
-        "description": "Configurá catálogo, streams, subtítulos, Audio Latino y F1/Deportes. Los proveedores opcionales no bloquean la instalación si están temporalmente caídos.",
+        "description": "Configurá catálogo, streams generales, subtítulos y dos perfiles opcionales: Audio Latino y F1/Deportes.",
         "data": {
           "streaming_server_url": "URL de stream-server",
           "catalog_manifest_urls": "Manifests de catálogo y metadatos",
@@ -15,12 +15,12 @@
           "default_media_player": "Reproductor predeterminado"
         },
         "data_description": {
-          "streaming_server_url": "Predeterminado: http://192.168.1.145:11470. Debe responder /settings desde Home Assistant.",
+          "streaming_server_url": "Ejemplo: http://192.168.1.50:11470",
           "catalog_manifest_urls": "Una URL por línea. Cinemeta viene sugerido.",
           "stream_manifest_urls": "Una URL por línea. Torrentio viene sugerido.",
           "subtitle_manifest_urls": "OpenSubtitles v3 viene sugerido; dejalo vacío para desactivar.",
-          "latin_manifest_urls": "Predeterminado: Cinecalidad. Reproduce sin subtítulos.",
-          "sports_manifest_urls": "Predeterminado: StremVerse. Catálogos de eventos y canales deportivos.",
+          "latin_manifest_urls": "Opcional. Add-on de streams con audio español latino. Reproduce sin subtítulos.",
+          "sports_manifest_urls": "Opcional. Debe declarar catálogo y streams para F1/deportes.",
           "default_media_player": "Chromecast, Android TV u otra entidad media_player"
         }
       }
@@ -46,8 +46,7 @@
           "subtitle_mode": "Modo de subtítulos",
           "subtitle_languages": "Idiomas de subtítulos preferidos",
           "subtitle_convert_vtt": "Convertir subtítulos a WebVTT",
-          "subtitle_base_url": "URL base de Home Assistant para subtítulos",
-          "streaming_server_url": "URL de stream-server"
+          "subtitle_base_url": "URL base de Home Assistant para subtítulos"
         },
         "data_description": {
           "catalog_manifest_urls": "Una URL por línea.",
@@ -62,16 +61,9 @@
           "subtitle_mode": "Automático carga el primer idioma preferido en Google Cast.",
           "subtitle_languages": "Códigos ISO por prioridad, por ejemplo spa, eng.",
           "subtitle_convert_vtt": "Descarga, convierte y publica WebVTT desde Home Assistant.",
-          "subtitle_base_url": "URL LAN accesible desde el Chromecast, por ejemplo http://192.168.1.20:8123.",
-          "streaming_server_url": "IP LAN de la PC, por defecto http://192.168.1.145:11470."
+          "subtitle_base_url": "URL LAN accesible desde el Chromecast, por ejemplo http://192.168.1.20:8123."
         }
       }
     }
-  },
-  "error": {
-    "cannot_connect": "No se pudo validar la configuración. Revisá los registros para ver el endpoint exacto.",
-    "no_addons_loaded": "No respondió ninguno de los manifests configurados.",
-    "catalog_provider_unavailable": "No se pudo cargar un proveedor de catálogo válido.",
-    "stream_provider_unavailable": "No se pudo cargar un proveedor general de streams válido."
   }
 }

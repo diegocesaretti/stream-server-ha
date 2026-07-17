@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .aggregator import StremioAddonManager, manifest_has_resource
+from .aggregator import StremioAddonManager
 from .api import StremioBridgeError, StremioStreamServerClient
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
 
@@ -33,35 +33,13 @@ class StremioBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.server = server
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Refresh add-ons even when the LAN stream-server is temporarily offline."""
         try:
+            settings = await self.server.get_settings()
             addons = await self.manager.async_refresh()
         except StremioBridgeError as err:
             raise UpdateFailed(str(err)) from err
-
-        settings: dict[str, Any] = {}
-        server_online = True
-        server_error: str | None = None
-        try:
-            settings = await self.server.get_settings()
-        except StremioBridgeError as err:
-            server_online = False
-            server_error = str(err)
-
-        core_catalog_online = any(
-            "catalog" in addon.roles and bool(addon.manifest.get("catalogs")) for addon in addons
-        )
-        core_stream_online = any(
-            "stream" in addon.roles and manifest_has_resource(addon.manifest, "stream")
-            for addon in addons
-        )
-
         return {
             "settings": settings,
-            "server_online": server_online,
-            "server_error": server_error,
-            "core_catalog_online": core_catalog_online,
-            "core_stream_online": core_stream_online,
             "addons": [
                 {
                     "id": addon.id,
@@ -69,10 +47,6 @@ class StremioBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "version": addon.manifest.get("version"),
                     "manifest_url": addon.client.manifest_url,
                     "roles": sorted(addon.roles),
-                    "resources": addon.manifest.get("resources", []),
-                    "catalog_count": len(addon.manifest.get("catalogs", []))
-                    if isinstance(addon.manifest.get("catalogs"), list)
-                    else 0,
                 }
                 for addon in addons
             ],

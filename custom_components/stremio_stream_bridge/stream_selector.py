@@ -121,38 +121,43 @@ def _filtered_candidates(
     return candidates or streams
 
 
-def choose_ideal_stream(
+def order_ideal_streams(
     streams: list[dict[str, Any]],
     max_size_gb: float,
     exclude_keywords: str,
-) -> dict[str, Any]:
-    """Choose the ideal 1080p link: most seeds first, then smallest file."""
-    if not streams:
-        raise ValueError("No streams to select")
-    candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
+) -> list[dict[str, Any]]:
+    """Rank all usable links for automatic playback and fallback.
 
-    exact_1080 = [stream for stream in candidates if parse_quality(stream) == 1080]
-    if exact_1080:
-        candidates = exact_1080
-    else:
-        # Graceful fallback: prefer 720p, then 4K, then any known/unknown quality.
-        fallback_order = {720: 0, 2160: 1, 480: 2, 360: 3, 0: 4}
-        best_bucket = min(fallback_order.get(parse_quality(stream), 5) for stream in candidates)
-        candidates = [
-            stream
-            for stream in candidates
-            if fallback_order.get(parse_quality(stream), 5) == best_bucket
-        ]
+    1080p stays first, then 720p, 4K, 480p, 360p and unknown qualities.
+    Within each quality bucket, more seeders win and smaller files break ties.
+    """
+    if not streams:
+        return []
+    candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
+    quality_order = {1080: 0, 720: 1, 2160: 2, 480: 3, 360: 4, 0: 5}
 
     def rank(stream: dict[str, Any]) -> tuple[Any, ...]:
         size = parse_size_gb(stream)
         return (
+            quality_order.get(parse_quality(stream), 6),
             -parse_seeders(stream),
             size if size is not None else 9999,
             stream_key(stream),
         )
 
-    return min(candidates, key=rank)
+    return sorted(candidates, key=rank)
+
+
+def choose_ideal_stream(
+    streams: list[dict[str, Any]],
+    max_size_gb: float,
+    exclude_keywords: str,
+) -> dict[str, Any]:
+    """Choose the first ranked ideal link."""
+    ordered = order_ideal_streams(streams, max_size_gb, exclude_keywords)
+    if not ordered:
+        raise ValueError("No streams to select")
+    return ordered[0]
 
 
 def choose_best_stream(

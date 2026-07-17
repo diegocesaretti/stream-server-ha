@@ -2,14 +2,10 @@
 
 ## 0.4.1
 
-- Set the default PC stream-server URL to `http://192.168.1.145:11470`.
-- Added Cinecalidad and StremVerse as default Latin and sports manifests.
-- Made subtitle, Latin and sports provider failures non-blocking during setup.
-- Allowed the integration to load while stream-server is offline so diagnostics remain available.
-- Added exact server/provider status to the connectivity sensor.
-- Added the response-enabled `connection_diagnostics` action.
-- Made stream-server URL editable from integration options.
-- Reduced the LAN stream-server connectivity timeout and improved empty timeout error text.
+- Fix HLS/DASH MIME detection: the resolved `.m3u8`/`.mpd` URL now takes precedence over an add-on filename hint.
+- Validate proxied HLS manifests before casting and automatically fall back to the next ranked source when a link is dead.
+- Sports automatic playback no longer blindly trusts the first stream returned by the add-on.
+- Add clearer debug logging for selected stream, MIME type and fallback decisions.
 
 ## 0.4.0
 
