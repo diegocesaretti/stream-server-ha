@@ -395,8 +395,10 @@ def catalog_required_extras(catalog: dict[str, Any]) -> list[str]:
     extras = catalog.get("extra", [])
     if isinstance(extras, list):
         for extra in extras:
-            if isinstance(extra, dict) and extra.get("isRequired") and isinstance(
-                extra.get("name"), str
+            if (
+                isinstance(extra, dict)
+                and extra.get("isRequired")
+                and isinstance(extra.get("name"), str)
             ):
                 result.append(extra["name"])
     return list(dict.fromkeys(result))

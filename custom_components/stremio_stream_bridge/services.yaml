@@ -165,3 +165,14 @@ subtitle_diagnostics:
           max: 100
           step: 1
           mode: box
+
+connection_diagnostics:
+  name: Diagnosticar conexiones
+  description: Prueba por separado el stream-server, Cinemeta, Torrentio, OpenSubtitles, Cinecalidad y StremVerse, y devuelve el error exacto de cada endpoint.
+  fields:
+    entry_id:
+      name: Entrada
+      required: false
+      selector:
+        config_entry:
+          integration: stremio_stream_bridge

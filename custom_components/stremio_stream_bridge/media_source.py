@@ -55,8 +55,8 @@ from .subtitle_support import (
     is_cast_player,
 )
 
-MEDIA_SOURCE_SEARCH_SUPPORTED = (
-    SearchMedia is not None and hasattr(MediaSource, "async_search_media")
+MEDIA_SOURCE_SEARCH_SUPPORTED = SearchMedia is not None and hasattr(
+    MediaSource, "async_search_media"
 )
 
 
@@ -112,9 +112,7 @@ class StremioBridgeMediaSource(MediaSource):
             entry = self._entry(payload["entry_id"])
             runtime: StremioBridgeRuntime = entry.runtime_data
             profile = str(payload.get("profile") or PROFILE_DEFAULT)
-            streams = await runtime.manager.get_streams(
-                payload["type"], payload["id"], profile
-            )
+            streams = await runtime.manager.get_streams(payload["type"], payload["id"], profile)
             if not streams:
                 raise Unresolvable("No stream provider returned a source")
             current = {**entry.data, **entry.options}
@@ -123,21 +121,13 @@ class StremioBridgeMediaSource(MediaSource):
                     stream = streams[0]
                 else:
                     max_size = float(current.get(CONF_MAX_SIZE_GB, DEFAULT_MAX_SIZE_GB))
-                    excluded = str(
-                        current.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS)
-                    )
-                    if bool(
-                        current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)
-                    ):
+                    excluded = str(current.get(CONF_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_KEYWORDS))
+                    if bool(current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)):
                         stream = choose_ideal_stream(streams, max_size, excluded)
                     else:
                         stream = choose_best_stream(
                             streams,
-                            str(
-                                current.get(
-                                    CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY
-                                )
-                            ),
+                            str(current.get(CONF_PREFERRED_QUALITY, DEFAULT_PREFERRED_QUALITY)),
                             max_size,
                             excluded,
                         )
@@ -146,9 +136,7 @@ class StremioBridgeMediaSource(MediaSource):
                 stream = find_stream_by_key(streams, key)
                 if stream is None:
                     raise Unresolvable("That stream is no longer available; reopen the list")
-            url, mime_type = prepare_playback(
-                runtime.server, stream, current, profile=profile
-            )
+            url, mime_type = prepare_playback(runtime.server, stream, current, profile=profile)
             if is_cast_player(self.hass, item.target_media_player):
                 subtitle = await async_prepare_subtitle_track(
                     runtime.manager,
@@ -186,8 +174,7 @@ class StremioBridgeMediaSource(MediaSource):
         media_types = self._search_media_types(query)
         metas = await runtime.manager.search(str(query.search_query), media_types)
         results = [
-            self._meta_preview(entry.entry_id, meta, profile=PROFILE_DEFAULT)
-            for meta in metas
+            self._meta_preview(entry.entry_id, meta, profile=PROFILE_DEFAULT) for meta in metas
         ]
         return SearchMedia(result=results)
 
@@ -229,9 +216,7 @@ class StremioBridgeMediaSource(MediaSource):
             key=lambda value: (value != "movie", value),
         )
         for media_type in available_types:
-            children.append(
-                self._type_node(entry.entry_id, media_type, PROFILE_DEFAULT)
-            )
+            children.append(self._type_node(entry.entry_id, media_type, PROFILE_DEFAULT))
         if runtime.manager.has_profile(PROFILE_LATIN):
             children.append(
                 _node(
@@ -272,9 +257,7 @@ class StremioBridgeMediaSource(MediaSource):
             children.insert(
                 0,
                 _node(
-                    identifier=_encode(
-                        {"kind": "search_results", "entry_id": entry.entry_id}
-                    ),
+                    identifier=_encode({"kind": "search_results", "entry_id": entry.entry_id}),
                     media_class=MediaClass.DIRECTORY,
                     media_content_type=MediaType.VIDEO,
                     title=f"Búsqueda: {runtime.last_search_query}",
@@ -302,7 +285,9 @@ class StremioBridgeMediaSource(MediaSource):
         available_types = sorted(
             {str(catalog.get("type")) for _, catalog in runtime.manager.catalogs(profile=profile)}
         )
-        children = [self._type_node(entry.entry_id, media_type, profile) for media_type in available_types]
+        children = [
+            self._type_node(entry.entry_id, media_type, profile) for media_type in available_types
+        ]
         title = "Audio Latino" if profile == PROFILE_LATIN else "F1 y Deportes"
         return _node(
             identifier=_encode(payload),
@@ -333,6 +318,7 @@ class StremioBridgeMediaSource(MediaSource):
             can_search=MEDIA_SOURCE_SEARCH_SUPPORTED and profile == PROFILE_DEFAULT,
             children_media_class=MediaClass.DIRECTORY,
         )
+
     def _browse_type(self, payload: dict[str, Any]) -> BrowseMediaSource:
         entry = self._entry(payload["entry_id"])
         runtime: StremioBridgeRuntime = entry.runtime_data
@@ -374,17 +360,13 @@ class StremioBridgeMediaSource(MediaSource):
             children_media_class=MediaClass.DIRECTORY,
             children=children,
         )
+
     async def _browse_catalog(self, payload: dict[str, Any]) -> BrowseMediaSource:
         entry = self._entry(payload["entry_id"])
         runtime: StremioBridgeRuntime = entry.runtime_data
         catalog = self._catalog(runtime, payload)
-        extra = {
-            str(key): str(value)
-            for key, value in dict(payload.get("extra") or {}).items()
-        }
-        missing_required = [
-            name for name in catalog_required_extras(catalog) if name not in extra
-        ]
+        extra = {str(key): str(value) for key, value in dict(payload.get("extra") or {}).items()}
+        missing_required = [name for name in catalog_required_extras(catalog) if name not in extra]
         if missing_required:
             return self._catalog_required_options(payload, catalog, missing_required[0])
 
@@ -415,7 +397,10 @@ class StremioBridgeMediaSource(MediaSource):
                 )
         children.extend(
             self._meta_preview(
-                entry.entry_id, meta, payload["type"], str(payload.get("profile") or PROFILE_DEFAULT)
+                entry.entry_id,
+                meta,
+                payload["type"],
+                str(payload.get("profile") or PROFILE_DEFAULT),
             )
             for meta in metas
         )
@@ -577,6 +562,7 @@ class StremioBridgeMediaSource(MediaSource):
             children_media_class=MediaClass.SEASON,
             children=children,
         )
+
     async def _browse_season(self, payload: dict[str, Any]) -> BrowseMediaSource:
         entry = self._entry(payload["entry_id"])
         runtime: StremioBridgeRuntime = entry.runtime_data
@@ -640,6 +626,7 @@ class StremioBridgeMediaSource(MediaSource):
             children_media_class=MediaClass.EPISODE,
             children=children,
         )
+
     async def _browse_stream_choices(self, payload: dict[str, Any]) -> BrowseMediaSource:
         entry = self._entry(payload["entry_id"])
         runtime: StremioBridgeRuntime = entry.runtime_data
@@ -678,9 +665,7 @@ class StremioBridgeMediaSource(MediaSource):
         if streams:
             entry = self._entry(payload["entry_id"])
             current = {**entry.data, **entry.options}
-            ideal_enabled = bool(
-                current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER)
-            )
+            ideal_enabled = bool(current.get(CONF_IDEAL_LINK_FILTER, DEFAULT_IDEAL_LINK_FILTER))
             profile = str(payload.get("profile") or PROFILE_DEFAULT)
             auto_title = (
                 "▶ Reproducir evento"
@@ -790,9 +775,7 @@ class StremioBridgeMediaSource(MediaSource):
         fallback_type: str = "movie",
         profile: str = PROFILE_DEFAULT,
     ) -> BrowseMediaSource:
-        media_type = str(
-            meta.get("_bridge_media_type") or meta.get("type") or fallback_type
-        )
+        media_type = str(meta.get("_bridge_media_type") or meta.get("type") or fallback_type)
         media_id = str(meta.get("id") or "")
         name = str(meta.get("name") or meta.get("title") or media_id)
         poster = meta.get("poster") or meta.get("background")
@@ -830,9 +813,7 @@ class StremioBridgeMediaSource(MediaSource):
 
     def _direct_play_enabled(self, entry: ConfigEntry) -> bool:
         current = {**entry.data, **entry.options}
-        return bool(
-            current.get(CONF_PLAY_IDEAL_ON_SELECT, DEFAULT_PLAY_IDEAL_ON_SELECT)
-        )
+        return bool(current.get(CONF_PLAY_IDEAL_ON_SELECT, DEFAULT_PLAY_IDEAL_ON_SELECT))
 
     @staticmethod
     def _video_identifier(
@@ -857,9 +838,7 @@ class StremioBridgeMediaSource(MediaSource):
             payload["subtitles"] = "off"
         return _encode(payload)
 
-    def _catalog(
-        self, runtime: StremioBridgeRuntime, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _catalog(self, runtime: StremioBridgeRuntime, payload: dict[str, Any]) -> dict[str, Any]:
         addon = runtime.manager.get_addon(payload["manifest_url"])
         for catalog in addon.manifest.get("catalogs", []):
             if (

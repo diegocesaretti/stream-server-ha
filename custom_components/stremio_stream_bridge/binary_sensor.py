@@ -16,6 +16,7 @@ from .const import (
     CONF_AUDIO_MODE,
     CONF_DEFAULT_MEDIA_PLAYER,
     CONF_PLAY_IDEAL_ON_SELECT,
+    CONF_STREAMING_SERVER_URL,
     DEFAULT_AUDIO_MODE,
     DEFAULT_PLAY_IDEAL_ON_SELECT,
     DOMAIN,
@@ -55,7 +56,13 @@ class StremioBridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        return self.coordinator.last_update_success
+        data = self.coordinator.data or {}
+        return bool(
+            self.coordinator.last_update_success
+            and data.get("server_online")
+            and data.get("core_catalog_online")
+            and data.get("core_stream_online")
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
@@ -70,7 +77,12 @@ class StremioBridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):
         )
         current = {**self._entry.data, **self._entry.options}
         return {
+            "server_url": current.get(CONF_STREAMING_SERVER_URL),
+            "server_online": bool(data.get("server_online")),
+            "server_error": data.get("server_error"),
             "server_version": values.get("serverVersion") if isinstance(values, dict) else None,
+            "core_catalog_online": bool(data.get("core_catalog_online")),
+            "core_stream_online": bool(data.get("core_stream_online")),
             "addons": addons,
             "addon_count": len(addons) if isinstance(addons, list) else 0,
             "addon_errors": errors,

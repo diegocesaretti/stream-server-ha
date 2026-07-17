@@ -53,9 +53,12 @@ from .const import (
     DEFAULT_CINEMETA_MANIFEST,
     DEFAULT_EXCLUDE_KEYWORDS,
     DEFAULT_IDEAL_LINK_FILTER,
+    DEFAULT_LATIN_MANIFEST,
     DEFAULT_MAX_SIZE_GB,
     DEFAULT_OPENSUBTITLES_MANIFEST,
     DEFAULT_PREFERRED_QUALITY,
+    DEFAULT_SPORTS_MANIFEST,
+    DEFAULT_STREAMING_SERVER_URL,
     DEFAULT_SUBTITLE_CONVERT_VTT,
     DEFAULT_SUBTITLE_LANGUAGES,
     DEFAULT_TORRENTIO_MANIFEST,
@@ -65,6 +68,7 @@ from .const import (
     PROFILE_LATIN,
     PROFILE_OPTIONS,
     PROFILE_SPORTS,
+    SERVICE_CONNECTION_DIAGNOSTICS,
     SERVICE_PLAY,
     SERVICE_PLAY_URL,
     SERVICE_REFRESH,
@@ -126,6 +130,8 @@ SEARCH_SCHEMA = vol.Schema(
         vol.Optional(ATTR_MEDIA_TYPE, default="all"): vol.In(["all", "movie", "series"]),
     }
 )
+
+CONNECTION_DIAGNOSTICS_SCHEMA = REFRESH_SCHEMA
 
 SUBTITLE_DIAGNOSTICS_SCHEMA = vol.Schema(
     {
@@ -191,8 +197,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             )
         elif not subtitles_disabled and not cast_target:
             _LOGGER.warning(
-                "External subtitles were skipped because %s is not a Home Assistant "
-                "Cast entity",
+                "External subtitles were skipped because %s is not a Home Assistant Cast entity",
                 player,
             )
         title = media_id
@@ -208,9 +213,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         except StremioBridgeError:
             pass
         extra = (
-            cast_service_extra(subtitle, title=title, thumbnail=thumbnail)
-            if cast_target
-            else None
+            cast_service_extra(subtitle, title=title, thumbnail=thumbnail) if cast_target else None
         )
         await _async_play_url(
             hass,
@@ -227,9 +230,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         raw_url = call.data[ATTR_URL].strip()
         try:
             url = (
-                runtime.server.resolve_magnet(raw_url)
-                if raw_url.startswith("magnet:")
-                else raw_url
+                runtime.server.resolve_magnet(raw_url) if raw_url.startswith("magnet:") else raw_url
             )
         except StremioBridgeError as err:
             raise HomeAssistantError(str(err)) from err
@@ -254,6 +255,87 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         runtime.last_search_results = await runtime.manager.search(
             runtime.last_search_query, media_types
         )
+
+    async def handle_connection_diagnostics(call: ServiceCall) -> dict[str, Any]:
+        """Test every endpoint independently and return exact failures."""
+        entry = _resolve_entry(hass, call.data.get(ATTR_ENTRY_ID))
+        runtime: StremioBridgeRuntime = entry.runtime_data
+        current = {**entry.data, **entry.options}
+        response: dict[str, Any] = {
+            "ok": True,
+            "stream_server": {
+                "url": current.get(CONF_STREAMING_SERVER_URL, DEFAULT_STREAMING_SERVER_URL)
+            },
+            "providers": {},
+        }
+        try:
+            settings = await runtime.server.get_settings()
+        except StremioBridgeError as err:
+            response["ok"] = False
+            response["stream_server"].update(
+                {"ok": False, "error": str(err), "test_path": "/settings"}
+            )
+        else:
+            values = settings.get("values", settings) if isinstance(settings, dict) else {}
+            response["stream_server"].update(
+                {
+                    "ok": True,
+                    "server_version": values.get("serverVersion")
+                    if isinstance(values, dict)
+                    else None,
+                }
+            )
+
+        session = async_get_clientsession(hass)
+        groups = {
+            "catalog": parse_manifest_urls(
+                current.get(CONF_CATALOG_MANIFEST_URLS, [DEFAULT_CINEMETA_MANIFEST])
+            ),
+            "stream": parse_manifest_urls(
+                current.get(CONF_STREAM_MANIFEST_URLS, [DEFAULT_TORRENTIO_MANIFEST])
+            ),
+            "subtitles": parse_manifest_urls(
+                current.get(CONF_SUBTITLE_MANIFEST_URLS, [DEFAULT_OPENSUBTITLES_MANIFEST])
+            ),
+            "latin": parse_manifest_urls(
+                current.get(CONF_LATIN_MANIFEST_URLS, [DEFAULT_LATIN_MANIFEST])
+            ),
+            "sports": parse_manifest_urls(
+                current.get(CONF_SPORTS_MANIFEST_URLS, [DEFAULT_SPORTS_MANIFEST])
+            ),
+        }
+        for group, urls in groups.items():
+            checks: list[dict[str, Any]] = []
+            for manifest_url in urls:
+                client = StremioAddonClient(session, manifest_url)
+                item: dict[str, Any] = {"url": client.manifest_url}
+                try:
+                    manifest = await client.get_manifest()
+                except StremioBridgeError as err:
+                    item.update({"ok": False, "error": str(err)})
+                    response["ok"] = False
+                else:
+                    resources = manifest.get("resources", [])
+                    resource_names = [
+                        resource if isinstance(resource, str) else resource.get("name")
+                        for resource in resources
+                        if isinstance(resource, (str, dict))
+                    ]
+                    catalogs = manifest.get("catalogs", [])
+                    item.update(
+                        {
+                            "ok": True,
+                            "id": manifest.get("id"),
+                            "name": manifest.get("name"),
+                            "version": manifest.get("version"),
+                            "types": manifest.get("types", []),
+                            "resources": resource_names,
+                            "catalog_count": len(catalogs) if isinstance(catalogs, list) else 0,
+                        }
+                    )
+                checks.append(item)
+            response["providers"][group] = checks
+        return response
 
     async def handle_subtitle_diagnostics(call: ServiceCall) -> dict[str, Any]:
         entry = _resolve_entry(hass, call.data.get(ATTR_ENTRY_ID))
@@ -284,12 +366,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             "cast_entity": is_cast_player(hass, player),
             "subtitle_border": "none",
             "subtitle_count": len(subtitles),
-            "available_languages": sorted(
-                {str(item.get("lang") or "und") for item in subtitles}
-            ),
-            "preferred_languages": current.get(
-                CONF_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGES
-            ),
+            "available_languages": sorted({str(item.get("lang") or "und") for item in subtitles}),
+            "preferred_languages": current.get(CONF_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGES),
             "provider_errors": dict(runtime.manager.last_subtitle_errors),
         }
         if selected is None:
@@ -324,6 +402,13 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_SEARCH, handle_search, schema=SEARCH_SCHEMA)
     hass.services.async_register(
         DOMAIN,
+        SERVICE_CONNECTION_DIAGNOSTICS,
+        handle_connection_diagnostics,
+        schema=CONNECTION_DIAGNOSTICS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_SUBTITLE_DIAGNOSTICS,
         handle_subtitle_diagnostics,
         schema=SUBTITLE_DIAGNOSTICS_SCHEMA,
@@ -333,7 +418,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate older entries to the multi-profile v0.4 format."""
+    """Migrate older entries to the resilient v0.4.1 format."""
     data = dict(entry.data)
     version = entry.version
     if version < 2:
@@ -356,6 +441,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data.setdefault(CONF_LATIN_MANIFEST_URLS, [])
         data.setdefault(CONF_SPORTS_MANIFEST_URLS, [])
         version = 4
+    if version < 5:
+        if data.get(CONF_STREAMING_SERVER_URL) == "http://192.168.1.50:11470":
+            data[CONF_STREAMING_SERVER_URL] = DEFAULT_STREAMING_SERVER_URL
+        if not parse_manifest_urls(data.get(CONF_LATIN_MANIFEST_URLS, [])):
+            data[CONF_LATIN_MANIFEST_URLS] = [DEFAULT_LATIN_MANIFEST]
+        if not parse_manifest_urls(data.get(CONF_SPORTS_MANIFEST_URLS, [])):
+            data[CONF_SPORTS_MANIFEST_URLS] = [DEFAULT_SPORTS_MANIFEST]
+        version = 5
     hass.config_entries.async_update_entry(entry, data=data, version=version)
     return True
 
@@ -382,7 +475,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [StremioAddonClient(session, url) for url in latin_urls],
         [StremioAddonClient(session, url) for url in sports_urls],
     )
-    server = StremioStreamServerClient(session, entry.data[CONF_STREAMING_SERVER_URL])
+    server = StremioStreamServerClient(
+        session, current.get(CONF_STREAMING_SERVER_URL, DEFAULT_STREAMING_SERVER_URL)
+    )
     coordinator = StremioBridgeCoordinator(hass, manager, server)
     await coordinator.async_config_entry_first_refresh()
     subtitle_proxy: SubtitleProxy = hass.data[DOMAIN]["subtitle_proxy"]
@@ -451,9 +546,7 @@ def _resolve_entry(hass: HomeAssistant, entry_id: str | None) -> ConfigEntry:
     if entry_id:
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry is None or entry not in entries:
-            raise HomeAssistantError(
-                f"Stremio Stream Bridge entry {entry_id} is not loaded"
-            )
+            raise HomeAssistantError(f"Stremio Stream Bridge entry {entry_id} is not loaded")
         return entry
     if len(entries) == 1:
         return entries[0]

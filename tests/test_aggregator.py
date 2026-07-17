@@ -29,9 +29,7 @@ SELECTOR = load("stream_selector")
 
 
 class FakeClient:
-    def __init__(
-        self, url, manifest, *, catalogs=None, meta=None, streams=None, subtitles=None
-    ):
+    def __init__(self, url, manifest, *, catalogs=None, meta=None, streams=None, subtitles=None):
         self.manifest_url = url
         self.base_url = url.removesuffix("/manifest.json")
         self._manifest = manifest
@@ -77,9 +75,7 @@ TORRENTIO = {
     "id": "torrentio",
     "name": "Torrentio",
     "version": "1",
-    "resources": [
-        {"name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"]}
-    ],
+    "resources": [{"name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"]}],
     "types": ["movie", "series"],
     "catalogs": [],
 }
@@ -203,10 +199,6 @@ async def test_manager_combines_subtitle_provider_and_stream_subtitles():
         "movie",
         "tt0133093",
         {"filename": "movie.mkv"},
-        {
-            "subtitles": [
-                {"id": "en", "url": "https://subs.example/en.vtt", "lang": "eng"}
-            ]
-        },
+        {"subtitles": [{"id": "en", "url": "https://subs.example/en.vtt", "lang": "eng"}]},
     )
     assert [subtitle["lang"] for subtitle in subtitles] == ["eng", "spa"]

@@ -41,9 +41,7 @@ class SubtitleProxy:
         self._session = session
         self._cache: dict[str, _CachedSubtitle] = {}
 
-    async def async_prepare_url(
-        self, source_url: str, base_url_override: str | None = None
-    ) -> str:
+    async def async_prepare_url(self, source_url: str, base_url_override: str | None = None) -> str:
         """Download a subtitle now and return a LAN-reachable WebVTT URL."""
         parsed = urlsplit(source_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:

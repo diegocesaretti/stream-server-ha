@@ -13,7 +13,8 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-REQUEST_TIMEOUT = ClientTimeout(total=20)
+REQUEST_TIMEOUT = ClientTimeout(total=25, connect=10)
+SERVER_REQUEST_TIMEOUT = ClientTimeout(total=5, connect=3)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -61,7 +62,8 @@ class StremioAddonClient:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
         except (ClientError, TimeoutError, ValueError) as err:
-            raise StremioConnectionError(f"Failed requesting {url}: {err}") from err
+            detail = str(err) or type(err).__name__
+            raise StremioConnectionError(f"Failed requesting {url}: {detail}") from err
 
         if not isinstance(payload, dict):
             raise StremioProtocolError(f"Expected JSON object from {url}")
@@ -151,11 +153,12 @@ class StremioStreamServerClient:
         """Check server connectivity and return settings."""
         url = f"{self.base_url}settings"
         try:
-            async with self._session.get(url, timeout=REQUEST_TIMEOUT) as response:
+            async with self._session.get(url, timeout=SERVER_REQUEST_TIMEOUT) as response:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
         except (ClientError, TimeoutError, ValueError) as err:
-            raise StremioConnectionError(f"Failed requesting {url}: {err}") from err
+            detail = str(err) or type(err).__name__
+            raise StremioConnectionError(f"Failed requesting {url}: {detail}") from err
 
         if not isinstance(payload, dict):
             raise StremioProtocolError("Streaming server settings response is not an object")

@@ -82,9 +82,7 @@ async def test_latin_profile_mirrors_default_catalog_and_uses_only_latin_streams
     latin = FakeClient(
         "https://latin/manifest.json",
         LATIN,
-        streams={
-            ("movie", "tt1"): [{"url": "https://video.example/latino.mp4"}]
-        },
+        streams={("movie", "tt1"): [{"url": "https://video.example/latino.mp4"}]},
     )
     manager = AGG.StremioAddonManager([catalog], [], latin_clients=[latin])
     await manager.async_refresh()
@@ -161,3 +159,29 @@ def test_force_transcode_audio_mode_sets_force_flag():
     assert "forceTranscoding=1" in url
     assert "audioCodecs=aac" in url
     assert mime == "application/vnd.apple.mpegurl"
+
+
+def test_v041_user_specific_defaults():
+    assert CONST.DEFAULT_STREAMING_SERVER_URL == "http://192.168.1.145:11470"
+    assert CONST.DEFAULT_LATIN_MANIFEST == "https://cinecalidad-stremio-addon.fly.dev/manifest.json"
+    assert CONST.DEFAULT_SPORTS_MANIFEST == "https://stremverse1.alwaysdata.net/manifest.json"
+
+
+@pytest.mark.asyncio
+async def test_optional_provider_failure_does_not_discard_working_core_addons():
+    class FailingClient(FakeClient):
+        async def get_manifest(self):
+            raise API.StremioConnectionError("optional provider offline")
+
+    catalog = FakeClient("https://catalog/manifest.json", CATALOG)
+    default_stream = FakeClient("https://stream/manifest.json", LATIN)
+    failing_latin = FailingClient("https://latin/manifest.json", LATIN)
+    manager = AGG.StremioAddonManager(
+        [catalog],
+        [default_stream],
+        latin_clients=[failing_latin],
+    )
+    addons = await manager.async_refresh()
+    assert len(addons) == 2
+    assert manager.catalogs("movie")
+    assert manager.errors["https://latin/manifest.json"] == "optional provider offline"

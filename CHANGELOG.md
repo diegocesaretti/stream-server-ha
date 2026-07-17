@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- Set the default PC stream-server URL to `http://192.168.1.145:11470`.
+- Added Cinecalidad and StremVerse as default Latin and sports manifests.
+- Made subtitle, Latin and sports provider failures non-blocking during setup.
+- Allowed the integration to load while stream-server is offline so diagnostics remain available.
+- Added exact server/provider status to the connectivity sensor.
+- Added the response-enabled `connection_diagnostics` action.
+- Made stream-server URL editable from integration options.
+- Reduced the LAN stream-server connectivity timeout and improved empty timeout error text.
+
 ## 0.4.0
 
 - Removed black subtitle outlines/background windows on Google Cast.
