@@ -1,0 +1,6 @@
+configuration:
+  log_level:
+    name: Nivel de registro
+    description: Cantidad de detalle que muestra el servidor Rust en el registro.
+network:
+  11470/tcp: API HTTP compatible con Stremio
