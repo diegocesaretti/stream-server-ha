@@ -9,7 +9,7 @@ CONF_STREAMING_SERVER_URL = "streaming_server_url"
 CONF_CATALOG_MANIFEST_URLS = "catalog_manifest_urls"
 CONF_STREAM_MANIFEST_URLS = "stream_manifest_urls"
 CONF_SUBTITLE_MANIFEST_URLS = "subtitle_manifest_urls"
-CONF_LATIN_MANIFEST_URLS = "latin_manifest_urls"
+CONF_LATIN_MANIFEST_URLS = "latin_manifest_urls"  # Legacy compatibility key.
 CONF_SPORTS_MANIFEST_URLS = "sports_manifest_urls"
 CONF_ADDON_MANIFEST_URL = "addon_manifest_url"  # Legacy v0.1 key.
 CONF_DEFAULT_MEDIA_PLAYER = "default_media_player"
@@ -40,12 +40,9 @@ DEFAULT_STREAMING_SERVER_URL = "http://192.168.1.145:11470"
 DEFAULT_CINEMETA_MANIFEST = "https://v3-cinemeta.strem.io/manifest.json"
 DEFAULT_TORRENTIO_MANIFEST = "https://torrentio.strem.fun/manifest.json"
 DEFAULT_OPENSUBTITLES_MANIFEST = "https://opensubtitles-v3.strem.io/manifest.json"
-DEFAULT_LATIN_MANIFEST = (
-    "https://torrentio.strem.fun/"
-    "providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,"
-    "magnetdl,horriblesubs,nyaasi,rutracker,mejortorrent,cinecalidad|sort=size|"
-    "language=spanish,latino|qualityfilter=brremux,hdrall,dolbyvision,4k/manifest.json"
-)
+# Audio Latino now filters the main stream provider. Kept empty so new entries do
+# not preload a second provider while older saved values remain harmlessly ignored.
+DEFAULT_LATIN_MANIFEST = ""
 DEFAULT_SPORTS_MANIFEST = "https://stremverse1.alwaysdata.net/manifest.json"
 DEFAULT_PREFERRED_QUALITY = "1080p"
 DEFAULT_MAX_SIZE_GB = 12.0

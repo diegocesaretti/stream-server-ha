@@ -13,6 +13,18 @@ from .const import PROFILE_DEFAULT, PROFILE_LATIN, PROFILE_SPORTS
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_SEARCH_RESULTS = 50
+_LATIN_AUDIO_PHRASES = (
+    "audio latino",
+    "espanol latino",
+    "spanish latino",
+    "dual latino",
+    "latino",
+    "latina",
+    "latam",
+    "latinoamerica",
+    "latin america",
+)
+_LATIN_AUDIO_FLAGS = ("🇦🇷", "🇧🇴", "🇨🇱", "🇨🇴", "🇨🇷", "🇪🇨", "🇲🇽", "🇵🇪", "🇺🇾", "🇻🇪")
 
 
 @dataclass(slots=True)
@@ -45,11 +57,19 @@ class StremioAddonManager:
     ) -> None:
         roles_by_url: dict[str, set[str]] = {}
         clients_by_url: dict[str, StremioAddonClient] = {}
+        # Latin Audio intentionally reuses the main stream providers. The
+        # latin_clients argument remains accepted so old config entries load,
+        # but those legacy clients are not registered or contacted.
+        if latin_clients:
+            _LOGGER.info(
+                "Ignoring %d legacy Latin Audio provider(s); the profile now filters "
+                "the main stream providers by release-name keywords",
+                len(latin_clients),
+            )
         for role, clients in (
             ("catalog", catalog_clients),
             ("stream", stream_clients),
             ("subtitle", subtitle_clients or []),
-            (PROFILE_LATIN, latin_clients or []),
             (PROFILE_SPORTS, sports_clients or []),
         ):
             for client in clients:
@@ -88,9 +108,11 @@ class StremioAddonManager:
         return addons
 
     def has_profile(self, profile: str) -> bool:
-        """Return whether at least one loaded add-on belongs to a special profile."""
+        """Return whether a playback profile is available."""
         if profile == PROFILE_DEFAULT:
             return True
+        if profile == PROFILE_LATIN:
+            return any("stream" in addon.roles for addon in self.addons)
         return any(profile in addon.roles for addon in self.addons)
 
     def catalogs(
@@ -99,13 +121,8 @@ class StremioAddonManager:
         profile: str = PROFILE_DEFAULT,
     ) -> list[tuple[LoadedAddon, dict[str, Any]]]:
         """Return catalog declarations for one playback profile."""
-        role = "catalog" if profile == PROFILE_DEFAULT else profile
-        result = self._catalogs_for_role(role, media_type)
-        # Most language-specific stream add-ons do not expose their own catalog.
-        # Mirror the regular Cinemeta catalog while retaining the Latin stream profile.
-        if profile == PROFILE_LATIN and not result:
-            result = self._catalogs_for_role("catalog", media_type)
-        return result
+        role = "catalog" if profile in {PROFILE_DEFAULT, PROFILE_LATIN} else profile
+        return self._catalogs_for_role(role, media_type)
 
     def _catalogs_for_role(
         self, role: str, media_type: str | None
@@ -159,9 +176,11 @@ class StremioAddonManager:
         profile: str = PROFILE_DEFAULT,
     ) -> dict[str, Any]:
         """Return metadata from the first compatible provider that succeeds."""
-        preferred_role = "catalog" if profile == PROFILE_DEFAULT else profile
+        preferred_role = (
+            "catalog" if profile in {PROFILE_DEFAULT, PROFILE_LATIN} else profile
+        )
         providers = [addon for addon in self.addons if preferred_role in addon.roles]
-        if profile != PROFILE_DEFAULT:
+        if profile not in {PROFILE_DEFAULT, PROFILE_LATIN}:
             providers.extend(
                 addon
                 for addon in self.addons
@@ -185,7 +204,7 @@ class StremioAddonManager:
         profile: str = PROFILE_DEFAULT,
     ) -> list[dict[str, Any]]:
         """Fetch and merge streams from compatible providers in one profile."""
-        role = "stream" if profile == PROFILE_DEFAULT else profile
+        role = "stream" if profile in {PROFILE_DEFAULT, PROFILE_LATIN} else profile
         providers = [
             addon
             for addon in self.addons
@@ -218,6 +237,15 @@ class StremioAddonManager:
                 merged.append(enriched)
         if not merged and errors:
             raise StremioProtocolError("; ".join(errors))
+        if profile == PROFILE_LATIN:
+            latin_streams = [stream for stream in merged if stream_has_latin_audio(stream)]
+            if not latin_streams and merged:
+                phrases = ", ".join(_LATIN_AUDIO_PHRASES)
+                raise StremioProtocolError(
+                    "No source from the main provider matched Latin Audio keywords "
+                    f"({phrases})"
+                )
+            return latin_streams
         return merged
 
     async def get_subtitles(
@@ -331,8 +359,29 @@ class StremioAddonManager:
         return [meta for _, meta in ranked[:_MAX_SEARCH_RESULTS]]
 
 
+def stream_has_latin_audio(stream: dict[str, Any]) -> bool:
+    """Return whether release metadata advertises Latin American Spanish audio."""
+    hints = stream.get("behaviorHints")
+    filename = hints.get("filename") if isinstance(hints, dict) else None
+    raw_text = "\n".join(
+        str(value)
+        for value in (
+            stream.get("name"),
+            stream.get("title"),
+            stream.get("description"),
+            filename,
+        )
+        if value
+    )
+    if any(flag in raw_text for flag in _LATIN_AUDIO_FLAGS):
+        return True
+    normalized = _normalize_search_text(raw_text)
+    padded = f" {normalized} "
+    return any(f" {phrase} " in padded for phrase in _LATIN_AUDIO_PHRASES)
+
+
 def _normalize_search_text(value: object) -> str:
-    """Normalize user and catalog titles for stable search-result ordering."""
+    """Normalize user, catalog and release text for stable matching."""
     text = unicodedata.normalize("NFKD", str(value or "").casefold())
     text = "".join(char for char in text if not unicodedata.combining(char))
     text = "".join(char if char.isalnum() else " " for char in text)

@@ -4,22 +4,22 @@
     "step": {
       "user": {
         "title": "Crear biblioteca Stremio agregada",
-        "description": "Configurá el servidor de la PC y los proveedores. Latino y Deportes ya vienen precargados; si alguno está temporalmente caído no bloquea la integración.",
+        "description": "Configurá el stream-server y los proveedores. Audio Latino ahora filtra el proveedor general; Deportes sigue siendo un proveedor opcional separado.",
         "data": {
           "streaming_server_url": "URL de stream-server",
           "catalog_manifest_urls": "Manifests de catálogo y metadatos",
           "stream_manifest_urls": "Manifests de streams generales",
           "subtitle_manifest_urls": "Manifests de subtítulos",
-          "latin_manifest_urls": "Manifests de Audio Latino",
+          "latin_manifest_urls": "Manifests antiguos de Audio Latino (ignorados)",
           "sports_manifest_urls": "Manifests de F1 y Deportes",
           "default_media_player": "Reproductor predeterminado"
         },
         "data_description": {
           "streaming_server_url": "Servidor recomendado para esta instalación: {recommended_server_url}",
           "catalog_manifest_urls": "Una URL por línea. Cinemeta viene precargado.",
-          "stream_manifest_urls": "Una URL por línea. Torrentio viene precargado.",
+          "stream_manifest_urls": "Una URL por línea. Torrentio viene precargado y también alimenta el perfil Audio Latino.",
           "subtitle_manifest_urls": "OpenSubtitles v3 viene precargado; dejalo vacío para desactivar.",
-          "latin_manifest_urls": "Precargado para priorizar audio español/latino. Este perfil reproduce sin subtítulos.",
+          "latin_manifest_urls": "Campo conservado por compatibilidad. Dejalo vacío; Audio Latino filtra los nombres del proveedor general.",
           "sports_manifest_urls": "StremVerse viene precargado para F1 y deportes. Sus caídas no bloquean películas y series.",
           "default_media_player": "Chromecast, Android TV u otra entidad media_player"
         }
@@ -35,7 +35,7 @@
           "default_media_player": "Reproductor predeterminado",
           "catalog_manifest_urls": "Manifests de catálogo y metadatos",
           "stream_manifest_urls": "Manifests de streams generales",
-          "latin_manifest_urls": "Manifests de Audio Latino",
+          "latin_manifest_urls": "Manifests antiguos de Audio Latino (ignorados)",
           "sports_manifest_urls": "Manifests de F1 y Deportes",
           "subtitle_manifest_urls": "Manifests de subtítulos",
           "play_ideal_on_select": "Reproducir enlace ideal al elegir un item",
@@ -62,13 +62,13 @@
         },
         "data_description": {
           "catalog_manifest_urls": "Una URL por línea.",
-          "stream_manifest_urls": "Proveedores normales para películas y series.",
-          "latin_manifest_urls": "Precargado con el proveedor español/latino. Se usa sólo en Audio Latino y reproduce sin subtítulos.",
+          "stream_manifest_urls": "Proveedores principales para reproducción normal y para Audio Latino filtrado por palabras.",
+          "latin_manifest_urls": "Ya no se usa. Podés vaciar este campo; los valores antiguos se ignoran y nunca se consultan.",
           "sports_manifest_urls": "StremVerse viene precargado para F1/deportes. Un fallo temporal no bloquea el resto de la integración.",
           "subtitle_manifest_urls": "Una URL por línea. Dejalo vacío para desactivar.",
           "play_ideal_on_select": "Activado por defecto. Películas, episodios y eventos reproducen directamente sin abrir la lista de enlaces.",
           "ideal_link_filter": "Prioriza compatibilidad del reproductor, luego 1080p, más semillas y, ante empate, menor tamaño.",
-          "audio_mode": "Directo es el modo seguro predeterminado y conserva la ruta que funcionaba en versiones anteriores. Automático queda como alias de reproducción directa. Forzar usa hlsv2 y vuelve a directo si la conversión falla.",
+          "audio_mode": "Directo es el modo seguro. Automático queda como alias directo. Forzar usa la ruta de conversión del stream-server configurado y vuelve a directo si falla.",
           "exclude_keywords": "Separadas por comas, por ejemplo CAM, TS, HDCAM.",
           "subtitle_mode": "Automático carga el primer idioma preferido en Google Cast.",
           "subtitle_languages": "Códigos ISO por prioridad, por ejemplo spa, eng.",

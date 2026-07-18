@@ -1,4 +1,4 @@
-# Stremio Stream Bridge v0.5.4
+# Stremio Stream Bridge v0.5.5
 
 Custom Home Assistant integration that combines Stremio-compatible catalogs, stream providers and subtitles, selects practical sources, and sends playback to a configured media player through a compatible stream-server.
 
@@ -10,21 +10,54 @@ This repository contains only the Home Assistant integration:
 custom_components/stremio_stream_bridge
 ```
 
-The optional Home Assistant Stream Engine app is maintained separately in:
+The Stream Engine, including the GPU-enabled build, is maintained separately:
 
 ```text
 https://github.com/diegocesaretti/stream-server-home-assistant
 ```
 
-The integration can also use an external stream-server running on a PC. Configure its reachable LAN URL under **Settings → Devices & services → Stremio Stream Bridge → Configure**.
+The filtering and ranking described below happen inside Home Assistant before the selected torrent is handed to the stream-server. Using the GPU Stream Engine does not change catalog search or Latin Audio filtering; it only changes how the chosen source is served, remuxed or transcoded.
 
-## What is new in 0.5.4
+## What is new in 0.5.5
 
-### Search inside the Home Assistant Media Browser
+### Audio Latino through the main provider
 
-On Home Assistant versions that expose native media-source search, the Media Browser shows a search action inside **Stremio Stream Bridge**.
+The **Audio Latino** section no longer depends on a separate Stremio stream provider. It requests the same sources as the default profile and keeps only releases whose metadata advertises Latin American Spanish audio.
 
-Search behavior depends on where it is opened:
+The filter checks:
+
+```text
+stream name
+title
+description
+behaviorHints.filename
+```
+
+Recognized signals include:
+
+```text
+latino
+latina
+latam
+audio latino
+español latino
+spanish latino
+dual latino
+latinoamérica / latin america
+Latin American country flags
+```
+
+The match is accent-insensitive and punctuation-insensitive. For example, `Español.Latino`, `SPANISH-LATINO` and `Audio Latino` are treated equivalently.
+
+If no release matches, the Latin profile returns an explicit error instead of silently playing a non-Latin source.
+
+Old `latin_manifest_urls` values are retained only for configuration compatibility. They are ignored, never loaded and never contacted. New installations leave that legacy field empty.
+
+External subtitles remain disabled for the Latin profile, as before.
+
+## Search in the Home Assistant Media Browser
+
+Native Media Source search requires **Home Assistant 2026.7 or later**. On compatible Core/frontend versions, searchable folders expose the Media Browser search action:
 
 ```text
 Stremio Stream Bridge → movies and series
@@ -32,70 +65,47 @@ Películas             → movies only
 Series                → series only
 ```
 
-The integration now:
+The integration queries every configured catalog that advertises the Stremio `search` extra, merges responding providers, removes duplicate IDs and ranks exact title matches before prefix and partial matches.
 
-- queries every configured catalog that advertises the Stremio `search` extra;
-- combines results from all responding providers;
-- ignores an individual provider failure when another provider succeeds;
-- removes duplicate movie or series IDs;
-- ranks exact title matches before prefixes and partial matches;
-- treats common leading articles such as `The`, `El` and `La` as optional for ranking;
-- returns at most 50 cards to keep the Media Browser responsive.
+The stream-server is not contacted during metadata search. It is used after selecting a movie or episode.
 
-Search returns metadata and posters only. The stream-server is contacted after a movie or episode is selected for playback.
-
-The existing `stremio_stream_bridge.search` service remains available and stores its last results in the browsable **Búsqueda: …** folder.
-
-## Changes retained from 0.5.3
-
-### H.264/x264 name preference
-
-The selector recognizes codec labels already exposed by Stremio add-ons:
-
-```text
-Preferred: H.264, H264, x264, AVC
-Fallback:  H.265, H265, x265, HEVC
-```
-
-When at least one source explicitly names H.264/x264, selection order becomes:
-
-```text
-named H.264/x264
-→ codec not identified by name
-→ named H.265/x265/HEVC
-```
-
-H.265 sources are not permanently removed. They remain available as final fallbacks. When no source explicitly names H.264, the previous quality, seed-count and size ranking remains unchanged.
-
-This is a lightweight name filter only. It does not run FFprobe, inspect the real media tracks, remux or transcode the file.
-
-### Direct voice resolver
-
-`stremio_stream_bridge.resolve` is designed for voice clients and automations that should proceed without asking the user to confirm ordinary title or episode choices.
-
-For similar or duplicate movie results, the resolver searches plausible titles, applies the ideal-link filter and selects the result whose accepted source has the most seeders.
-
-For a series without an explicit episode, it compares available episodes and chooses the episode whose accepted ideal source has the most seeders. Supplying a season limits the comparison to that season.
-
-Explicit requests remain authoritative:
-
-- A supplied year is preserved.
-- A supplied season and episode are preserved.
-- A nonexistent explicit episode returns `episode_not_found`.
-- `profile: sports` remains unsupported for title resolution, while sports catalog browsing and playback continue to work.
-
-Normal resolver outcomes are `exact`, `not_found`, `episode_not_found`, `unsupported` and `error`.
-
-## Home Assistant services
-
-### Search
-
-Search configured catalogs and optionally return normalized public results:
+On older Home Assistant versions, use the service fallback:
 
 ```yaml
 action: stremio_stream_bridge.search
 data:
   query: The Matrix
+  media_type: all
+response_variable: result
+```
+
+The latest service search is also exposed inside the Media Browser as:
+
+```text
+Búsqueda: The Matrix
+```
+
+## H.264/x264 name preference
+
+When a provider returns at least one source explicitly labelled as H.264, stream ordering prefers:
+
+```text
+H.264 / H264 / x264 / AVC
+→ codec not identified by name
+→ H.265 / H265 / x265 / HEVC
+```
+
+H.265 sources are retained as fallbacks. This is a lightweight name filter; it does not inspect the real media tracks with FFprobe.
+
+## Home Assistant services
+
+### Search
+
+```yaml
+action: stremio_stream_bridge.search
+data:
+  query: The Matrix
+  media_type: movie
 response_variable: result
 ```
 
@@ -106,14 +116,16 @@ Resolve a spoken movie or series title without starting playback:
 ```yaml
 action: stremio_stream_bridge.resolve
 data:
-  query: The Matrix
-  media_type: movie
+  query: Breaking Bad
+  media_type: series
+  season: 2
+  episode: 3
 response_variable: result
 ```
 
-### Play
+Normal resolver outcomes are `exact`, `not_found`, `episode_not_found`, `unsupported` and `error`.
 
-Start playback using selected identifiers:
+### Play
 
 ```yaml
 action: stremio_stream_bridge.play
@@ -124,44 +136,34 @@ data:
   media_player: media_player.tv_living
 ```
 
+Available profiles:
+
+```text
+default
+latin
+sports
+```
+
 ## Automatic source selection and fallback
 
 Depending on the configured options, ranking considers:
 
 ```text
 Cast/direct-play compatibility
+→ Latin Audio match when profile=latin
 → H.264/x264 name preference
 → preferred resolution
 → highest seed count
 → smallest file when otherwise tied
 ```
 
-Before each Cast attempt, the integration can stop the previous playback session, close the active Cast receiver, prebuffer a small HTTP range from the new source and wait for the player to reach `playing`. Failed or stalled candidates fall through to the next ranked source.
-
-H.265/x265, MKV, DTS and multichannel sources may still work on some receivers, but are treated conservatively when safer alternatives exist.
-
-## TvOverlay playback status
-
-When enabled, the integration sends a progress message while preparing each ranked source and a success message only after the selected player reports playback:
-
-```text
-Buscando una fuente para «The Matrix»… (1/5)
-Estás viendo «The Matrix».
-```
-
-Notification failures do not interrupt playback.
-
-## Subtitles
-
-The integration can aggregate subtitle providers, download and normalize subtitle files, convert them to WebVTT and temporarily serve them through Home Assistant.
-
-For Home Assistant Cast entities, subtitle styling uses a transparent background and no black edge or window.
+The integration can stop the previous playback session, close the active Cast receiver, prebuffer the new source and wait for the player to reach `playing`. Failed or stalled candidates fall through to the next ranked source.
 
 ## Provider profiles
 
 ### Default
 
-Typical defaults:
+Typical providers:
 
 ```text
 Catalog and metadata:
@@ -174,23 +176,29 @@ Subtitles:
 https://opensubtitles-v3.strem.io/manifest.json
 ```
 
-### Latin Audio
+### Audio Latino
 
-The Latin profile uses configured Latin stream providers and disables external subtitles. When a stream-only add-on has no catalogs, the integration mirrors normal movie and series catalogs and queries the Latin provider during playback.
+Uses the same stream manifests as **Default**, filtered by release-name metadata. No additional Latin provider is required.
 
 ### F1 and Sports
 
-The sports profile creates a dedicated media-browser section from configured sports add-ons. The provider should expose appropriate catalog and stream resources.
+Sports remains a separate optional provider profile because its catalogs and live stream resources are structurally different from movie and series torrents.
 
 ## Audio compatibility
 
 Available modes:
 
 - `direct` — sends the original stream-server URL to the player.
-- `automatic` — retained for backwards compatibility and currently behaves like `direct`.
-- `force_transcode` — explicitly requests the stream-server HLS conversion route and falls back to the original direct URL if conversion fails.
+- `automatic` — retained as a backwards-compatible direct-playback alias.
+- `force_transcode` — requests the configured stream-server conversion route and falls back to direct when conversion fails.
 
-Direct playback remains the safest default because HLS conversion support depends on the configured stream-server build.
+The GPU Stream Engine can improve remux/transcode performance, but it does not change which source is selected by Home Assistant.
+
+## Subtitles
+
+The integration can aggregate subtitle providers, download and normalize subtitle files, convert them to WebVTT and temporarily serve them through Home Assistant.
+
+For Home Assistant Cast entities, subtitle styling uses a transparent background and no black edge or window.
 
 ## Installation or update
 
@@ -199,9 +207,10 @@ Direct playback remains the safest default because HLS conversion support depend
 3. Restart Home Assistant.
 4. Keep the existing configuration entry; no reset is required.
 5. Open **Settings → Devices & services → Stremio Stream Bridge → Configure**.
-6. Enter a stream-server URL reachable from Home Assistant and the playback device.
+6. Enter the GPU or standard stream-server URL reachable from Home Assistant and the playback device.
+7. Clear the legacy **Latin Audio manifests** field; it is ignored in v0.5.5.
 
-Do not use `127.0.0.1` or `localhost` when the Chromecast or television must open the stream URL itself.
+Do not use `127.0.0.1` or `localhost` when a Chromecast or television must open the stream URL itself.
 
 ## Internal identity
 
@@ -211,11 +220,11 @@ folder: custom_components/stremio_stream_bridge
 services: stremio_stream_bridge.*
 ```
 
-The domain is intentionally unchanged so existing configuration entries, services and automations continue working after the repository rename.
+The domain remains unchanged so existing configuration entries, services and automations continue working.
 
 ## Notes
 
 - The configured stream-server must be reachable from Home Assistant and the playback device.
 - Public Stremio add-ons can change or disappear without notice.
-- Optional-provider failures are reported without preventing the core integration from loading.
+- Torrent release names are not perfectly standardized; the Latin filter only trusts metadata explicitly returned by the provider.
 - Use media, catalogs and providers only where you have the right to access and reproduce the content.

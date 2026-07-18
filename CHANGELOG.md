@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.5
+
+- Audio Latino reutiliza los mismos proveedores generales de streams y filtra por palabras presentes en el nombre, título, descripción o filename del torrent.
+- Reconoce señales como `latino`, `latam`, `español latino`, `spanish latino`, `audio latino`, `dual latino` y banderas latinoamericanas.
+- Los manifests latinos guardados por versiones anteriores quedan como configuración heredada: no se registran, no se consultan y pueden vaciarse.
+- Si ninguna fuente declara audio latino, el perfil falla de forma explícita en lugar de reproducir una fuente de otro idioma.
+- Aclara que la búsqueda nativa del navegador multimedia requiere Home Assistant 2026.7 o posterior; el servicio `stremio_stream_bridge.search` sigue disponible en versiones anteriores.
+- No cambia la API ni el funcionamiento del stream-server; es compatible con el Stream Engine GPU mantenido en el repositorio separado.
+
 ## 0.5.4
 
 - Añade búsqueda nativa dentro del navegador multimedia de Home Assistant en versiones compatibles.
