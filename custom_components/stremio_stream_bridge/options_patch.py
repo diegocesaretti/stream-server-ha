@@ -14,11 +14,13 @@ from .const import (
     CONF_PREFERRED_AUDIO_LANGUAGES,
     CONF_PREFER_H264,
     CONF_PREFER_SMALLER_SIZE,
+    CONF_SECONDARY_STREAM_MANIFEST_URL,
     DEFAULT_HIDE_NON_LATIN_ITEMS,
     DEFAULT_LATIN_AUDIO_KEYWORDS,
     DEFAULT_PREFERRED_AUDIO_LANGUAGES,
     DEFAULT_PREFER_H264,
     DEFAULT_PREFER_SMALLER_SIZE,
+    DEFAULT_SECONDARY_STREAM_MANIFEST,
 )
 
 
@@ -42,6 +44,15 @@ def install_source_options_patch() -> None:
         fields = dict(schema.schema)
         fields.update(
             {
+                vol.Optional(
+                    CONF_SECONDARY_STREAM_MANIFEST_URL,
+                    default=str(
+                        displayed.get(
+                            CONF_SECONDARY_STREAM_MANIFEST_URL,
+                            DEFAULT_SECONDARY_STREAM_MANIFEST,
+                        )
+                    ),
+                ): TextSelector(TextSelectorConfig(multiline=False)),
                 vol.Required(
                     CONF_LATIN_AUDIO_KEYWORDS,
                     default=str(
