@@ -44,20 +44,35 @@ jobs:
           bash -n stream_server/run.sh
 
       - name: Build amd64 app image
+        id: docker_build
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
-          if ! docker build \
+          docker build \
             --build-arg BUILD_VERSION=0.1.0 \
             --build-arg BUILD_ARCH=amd64 \
             --tag stremio-stream-engine:test \
-            stream_server >docker-build.log 2>&1; then
-            echo "Docker build failed. Last 200 lines:"
-            tail -n 200 docker-build.log
-            exit 1
-          fi
-          tail -n 80 docker-build.log
+            stream_server >docker-build.log 2>&1
+
+      - name: Upload Docker build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-log
+          path: docker-build.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Report Docker build failure
+        if: steps.docker_build.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Docker build failed. Last 120 lines:"
+          tail -n 120 docker-build.log
+          exit 1
 
       - name: Inspect image
+        if: steps.docker_build.outcome == 'success'
         run: |
           docker image inspect stremio-stream-engine:test >/dev/null
