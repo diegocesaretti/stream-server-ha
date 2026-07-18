@@ -1,6 +1,0 @@
-configuration:
-  log_level:
-    name: Log level
-    description: Logging verbosity for the Rust stream server.
-network:
-  11470/tcp: Stremio-compatible HTTP API
