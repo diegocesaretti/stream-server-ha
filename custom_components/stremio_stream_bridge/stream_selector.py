@@ -14,7 +14,9 @@ _QUALITY_PATTERNS = (
     (480, re.compile(r"\b480[pi]?\b", re.IGNORECASE)),
     (360, re.compile(r"\b360[pi]?\b", re.IGNORECASE)),
 )
-_SIZE_RE = re.compile(r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(TiB|TB|GiB|GB|MiB|MB)\b", re.IGNORECASE)
+_SIZE_RE = re.compile(
+    r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(TiB|TB|GiB|GB|MiB|MB)\b", re.IGNORECASE
+)
 _SEED_PATTERNS = (
     re.compile(r"(?:👤|🌱|seeders?|seeds?)\s*[:=]?\s*(\d+)", re.IGNORECASE),
     re.compile(r"(\d+)\s*(?:seeders?|seeds?)\b", re.IGNORECASE),
@@ -184,7 +186,10 @@ def cast_compatibility_tier(stream: dict[str, Any]) -> int:
 
     0 is explicitly compatible, 1 is unknown/likely, and 2 is known risky.
     The ranking uses add-on release text, so it is deliberately conservative.
+    Forced transcoding makes the original container and codecs irrelevant.
     """
+    if stream.get("_bridge_force_transcode"):
+        return 0
     container = parse_container(stream)
     video = parse_video_codec(stream)
     audio = parse_audio_codec(stream)
@@ -246,6 +251,8 @@ def stream_label(stream: dict[str, Any], position: int | None = None) -> str:
 
 def direct_play_compatibility_rank(stream: dict[str, Any]) -> tuple[int, int, int, int]:
     """Rank a stream for direct playback on Cast and browser players."""
+    if stream.get("_bridge_force_transcode"):
+        return (0, 0, 0, 0)
     source = _source_text(stream)
     container = parse_container(stream)
     video = parse_video_codec(stream)
@@ -292,26 +299,46 @@ def _filtered_candidates(
     max_size_gb: float,
     exclude_keywords: str,
 ) -> list[dict[str, Any]]:
+    """Apply release exclusions and always enforce the configured maximum size."""
     excluded = [word.strip().lower() for word in exclude_keywords.split(",") if word.strip()]
 
-    def allowed(stream: dict[str, Any], enforce_size: bool = True) -> bool:
+    def keyword_allowed(stream: dict[str, Any]) -> bool:
         text = stream_text(stream).lower()
-        if any(
+        return not any(
             re.search(
                 rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])",
                 text,
                 re.IGNORECASE,
             )
             for keyword in excluded
-        ):
-            return False
-        size = parse_size_gb(stream)
-        return not (enforce_size and max_size_gb > 0 and size is not None and size > max_size_gb)
+        )
 
-    candidates = [stream for stream in streams if allowed(stream)]
+    candidates = [stream for stream in streams if keyword_allowed(stream)]
     if not candidates:
-        candidates = [stream for stream in streams if allowed(stream, enforce_size=False)]
-    return candidates or streams
+        # Preserve the historical exclusion fallback, but never bypass max size.
+        candidates = list(streams)
+    if max_size_gb <= 0:
+        return candidates
+    return [
+        stream
+        for stream in candidates
+        if (size := parse_size_gb(stream)) is None or size <= max_size_gb
+    ]
+
+
+def _configured_flag(
+    streams: list[dict[str, Any]],
+    key: str,
+    explicit: bool | None,
+    *,
+    legacy_default: bool,
+) -> bool:
+    if explicit is not None:
+        return explicit
+    configured = [stream[key] for stream in streams if key in stream]
+    if configured:
+        return any(bool(value) for value in configured)
+    return legacy_default
 
 
 def order_ideal_streams(
@@ -322,23 +349,35 @@ def order_ideal_streams(
     preferred_quality: str = "1080p",
     prefer_direct_play: bool = False,
     strict_compatibility: bool = False,
+    prefer_h264: bool | None = None,
+    prefer_smaller_size: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Rank all usable links for automatic playback and fallback.
 
-    Compatibility is applied first when requested. When an H.264/x264 name is
-    available it is preferred over unknown codecs and H.265/x265/HEVC names, then
-    quality, seed count and file size decide the retry order.
+    Maximum size is a hard filter. H.264 and smaller-file preferences are
+    independent optional tie-breakers configured by the integration entry.
     """
     if not streams:
         return []
     candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
+    if not candidates:
+        return []
+    prefer_h264 = _configured_flag(
+        candidates, "_bridge_prefer_h264", prefer_h264, legacy_default=True
+    )
+    prefer_smaller_size = _configured_flag(
+        candidates,
+        "_bridge_prefer_smaller_size",
+        prefer_smaller_size,
+        legacy_default=True,
+    )
     if prefer_direct_play and strict_compatibility:
         compatible = [stream for stream in candidates if cast_compatibility_tier(stream) < 2]
         if compatible:
             candidates = compatible
     target_map = {"2160p": 2160, "1080p": 1080, "720p": 720, "480p": 480}
     target = target_map.get(preferred_quality)
-    named_h264_available = any(
+    named_h264_available = prefer_h264 and any(
         parse_named_video_codec(stream) == "H.264" for stream in candidates
     )
 
@@ -353,7 +392,6 @@ def order_ideal_streams(
             if quality > target:
                 return (2, quality - target)
             return (3, 9999)
-        # auto: prefer the highest known quality.
         return (0 if quality else 1, -quality)
 
     def rank(stream: dict[str, Any]) -> tuple[Any, ...]:
@@ -366,7 +404,7 @@ def order_ideal_streams(
             _named_codec_rank(stream, h264_available=named_h264_available),
             *quality_rank(parse_quality(stream)),
             -parse_seeders(stream),
-            size if size is not None else 9999,
+            size if prefer_smaller_size and size is not None else 0,
             stream_key(stream),
         )
 
@@ -377,11 +415,20 @@ def choose_ideal_stream(
     streams: list[dict[str, Any]],
     max_size_gb: float,
     exclude_keywords: str,
+    *,
+    prefer_h264: bool | None = None,
+    prefer_smaller_size: bool | None = None,
 ) -> dict[str, Any]:
     """Choose the first ranked ideal link."""
-    ordered = order_ideal_streams(streams, max_size_gb, exclude_keywords)
+    ordered = order_ideal_streams(
+        streams,
+        max_size_gb,
+        exclude_keywords,
+        prefer_h264=prefer_h264,
+        prefer_smaller_size=prefer_smaller_size,
+    )
     if not ordered:
-        raise ValueError("No streams to select")
+        raise ValueError("No streams satisfy the configured filters or maximum size")
     return ordered[0]
 
 
@@ -390,15 +437,29 @@ def choose_best_stream(
     preferred_quality: str,
     max_size_gb: float,
     exclude_keywords: str,
+    *,
+    prefer_h264: bool | None = None,
+    prefer_smaller_size: bool | None = None,
 ) -> dict[str, Any]:
-    """Select a practical stream using quality, size, release tags and seeds."""
+    """Select a practical stream using quality, optional preferences and seeds."""
     if not streams:
         raise ValueError("No streams to select")
     candidates = _filtered_candidates(streams, max_size_gb, exclude_keywords)
+    if not candidates:
+        raise ValueError("No streams satisfy the configured filters or maximum size")
+    prefer_h264 = _configured_flag(
+        candidates, "_bridge_prefer_h264", prefer_h264, legacy_default=True
+    )
+    prefer_smaller_size = _configured_flag(
+        candidates,
+        "_bridge_prefer_smaller_size",
+        prefer_smaller_size,
+        legacy_default=True,
+    )
 
     target_map = {"2160p": 2160, "1080p": 1080, "720p": 720, "480p": 480}
     target = target_map.get(preferred_quality)
-    named_h264_available = any(
+    named_h264_available = prefer_h264 and any(
         parse_named_video_codec(stream) == "H.264" for stream in candidates
     )
 
@@ -416,13 +477,12 @@ def choose_best_stream(
         return (0 if quality else 1, -quality)
 
     def rank(stream: dict[str, Any]) -> tuple[Any, ...]:
-        quality = parse_quality(stream)
         size = parse_size_gb(stream)
         return (
             _named_codec_rank(stream, h264_available=named_h264_available),
-            *quality_rank(quality),
+            *quality_rank(parse_quality(stream)),
             -parse_seeders(stream),
-            size if size is not None else 9999,
+            size if prefer_smaller_size and size is not None else 0,
             stream_key(stream),
         )
 
