@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.4
+
+- Añade búsqueda nativa dentro del navegador multimedia de Home Assistant en versiones compatibles.
+- Consulta todos los catálogos configurados que anuncian el extra Stremio `search`.
+- Combina resultados de múltiples proveedores y tolera fallas parciales.
+- Elimina duplicados por tipo e ID y limita la respuesta a 50 tarjetas.
+- Prioriza coincidencias exactas, luego prefijos y coincidencias parciales, ignorando artículos iniciales comunes al ordenar.
+- Mantiene disponible el servicio `stremio_stream_bridge.search` y su carpeta persistente `Búsqueda: …`.
+
 ## 0.5.3
 
 - Añade filtros por nombre para `H.264`, `H264`, `x264` y `AVC` frente a `H.265`, `H265`, `x265` y `HEVC`.

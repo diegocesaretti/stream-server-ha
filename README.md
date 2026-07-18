@@ -1,4 +1,4 @@
-# Stremio Stream Bridge v0.5.3
+# Stremio Stream Bridge v0.5.4
 
 Custom Home Assistant integration that combines Stremio-compatible catalogs, stream providers and subtitles, selects practical sources, and sends playback to a configured media player through a compatible stream-server.
 
@@ -18,7 +18,35 @@ https://github.com/diegocesaretti/stream-server-home-assistant
 
 The integration can also use an external stream-server running on a PC. Configure its reachable LAN URL under **Settings → Devices & services → Stremio Stream Bridge → Configure**.
 
-## What is new in 0.5.3
+## What is new in 0.5.4
+
+### Search inside the Home Assistant Media Browser
+
+On Home Assistant versions that expose native media-source search, the Media Browser shows a search action inside **Stremio Stream Bridge**.
+
+Search behavior depends on where it is opened:
+
+```text
+Stremio Stream Bridge → movies and series
+Películas             → movies only
+Series                → series only
+```
+
+The integration now:
+
+- queries every configured catalog that advertises the Stremio `search` extra;
+- combines results from all responding providers;
+- ignores an individual provider failure when another provider succeeds;
+- removes duplicate movie or series IDs;
+- ranks exact title matches before prefixes and partial matches;
+- treats common leading articles such as `The`, `El` and `La` as optional for ranking;
+- returns at most 50 cards to keep the Media Browser responsive.
+
+Search returns metadata and posters only. The stream-server is contacted after a movie or episode is selected for playback.
+
+The existing `stremio_stream_bridge.search` service remains available and stores its last results in the browsable **Búsqueda: …** folder.
+
+## Changes retained from 0.5.3
 
 ### H.264/x264 name preference
 
@@ -45,14 +73,7 @@ This is a lightweight name filter only. It does not run FFprobe, inspect the rea
 
 `stremio_stream_bridge.resolve` is designed for voice clients and automations that should proceed without asking the user to confirm ordinary title or episode choices.
 
-For similar or duplicate movie results, the resolver:
-
-```text
-searches plausible titles
-→ retrieves streams for each title
-→ applies the ideal-link filter
-→ selects the result whose accepted source has the most seeders
-```
+For similar or duplicate movie results, the resolver searches plausible titles, applies the ideal-link filter and selects the result whose accepted source has the most seeders.
 
 For a series without an explicit episode, it compares available episodes and chooses the episode whose accepted ideal source has the most seeders. Supplying a season limits the comparison to that season.
 
@@ -69,7 +90,7 @@ Normal resolver outcomes are `exact`, `not_found`, `episode_not_found`, `unsuppo
 
 ### Search
 
-Searches configured catalogs and optionally returns normalized public results:
+Search configured catalogs and optionally return normalized public results:
 
 ```yaml
 action: stremio_stream_bridge.search
@@ -80,7 +101,7 @@ response_variable: result
 
 ### Resolve
 
-Resolves a spoken movie or series title without starting playback:
+Resolve a spoken movie or series title without starting playback:
 
 ```yaml
 action: stremio_stream_bridge.resolve
@@ -90,36 +111,9 @@ data:
 response_variable: result
 ```
 
-A selected result includes the public media identifiers and may include the winning source seed count:
-
-```yaml
-ok: true
-status: exact
-profile: default
-selected:
-  media_id: tt0133093
-  media_type: movie
-  title: The Matrix
-  year: 1999
-seeders: 120
-selection_reason: ideal_stream_seeders
-```
-
-Resolve a specific episode:
-
-```yaml
-action: stremio_stream_bridge.resolve
-data:
-  query: Breaking Bad
-  media_type: series
-  season: 2
-  episode: 3
-response_variable: result
-```
-
 ### Play
 
-Starts playback using the selected identifiers:
+Start playback using selected identifiers:
 
 ```yaml
 action: stremio_stream_bridge.play
@@ -132,7 +126,7 @@ data:
 
 ## Automatic source selection and fallback
 
-The integration ranks usable sources and can try several automatically. Depending on the configured options, ranking considers:
+Depending on the configured options, ranking considers:
 
 ```text
 Cast/direct-play compatibility
@@ -155,19 +149,13 @@ Buscando una fuente para «The Matrix»… (1/5)
 Estás viendo «The Matrix».
 ```
 
-The configured poster is included when the selected notification service supports images. Notification failures do not interrupt playback.
+Notification failures do not interrupt playback.
 
 ## Subtitles
 
 The integration can aggregate subtitle providers, download and normalize subtitle files, convert them to WebVTT and temporarily serve them through Home Assistant.
 
-For Home Assistant Cast entities, subtitle styling uses a transparent background and no black edge or window:
-
-```text
-edgeType: NONE
-background: transparent
-window: none
-```
+For Home Assistant Cast entities, subtitle styling uses a transparent background and no black edge or window.
 
 ## Provider profiles
 
@@ -188,7 +176,7 @@ https://opensubtitles-v3.strem.io/manifest.json
 
 ### Latin Audio
 
-The Latin profile uses only configured Latin stream providers and disables external subtitles. When a stream-only add-on has no catalogs, the integration mirrors normal movie and series catalogs and queries the Latin provider during playback.
+The Latin profile uses configured Latin stream providers and disables external subtitles. When a stream-only add-on has no catalogs, the integration mirrors normal movie and series catalogs and queries the Latin provider during playback.
 
 ### F1 and Sports
 
@@ -213,18 +201,9 @@ Direct playback remains the safest default because HLS conversion support depend
 5. Open **Settings → Devices & services → Stremio Stream Bridge → Configure**.
 6. Enter a stream-server URL reachable from Home Assistant and the playback device.
 
-Examples:
-
-```text
-http://192.168.1.145:11470
-http://HOME_ASSISTANT_IP:11470
-```
-
 Do not use `127.0.0.1` or `localhost` when the Chromecast or television must open the stream URL itself.
 
 ## Internal identity
-
-The Home Assistant integration identity remains:
 
 ```text
 domain: stremio_stream_bridge
@@ -232,7 +211,7 @@ folder: custom_components/stremio_stream_bridge
 services: stremio_stream_bridge.*
 ```
 
-This domain is intentionally unchanged so existing configuration entries, services and automations continue working after the repository rename.
+The domain is intentionally unchanged so existing configuration entries, services and automations continue working after the repository rename.
 
 ## Notes
 

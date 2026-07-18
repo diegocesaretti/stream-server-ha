@@ -6,11 +6,13 @@ import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Any
+import unicodedata
 
 from .api import StremioAddonClient, StremioBridgeError, StremioProtocolError
 from .const import PROFILE_DEFAULT, PROFILE_LATIN, PROFILE_SPORTS
 
 _LOGGER = logging.getLogger(__name__)
+_MAX_SEARCH_RESULTS = 50
 
 
 @dataclass(slots=True)
@@ -270,17 +272,33 @@ class StremioAddonManager:
     async def search(
         self, query: str, media_types: tuple[str, ...] = ("movie", "series")
     ) -> list[dict[str, Any]]:
-        """Search default catalogs that advertise the Stremio `search` extra."""
+        """Search every default catalog that advertises the Stremio `search` extra."""
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
         requests: list[tuple[LoadedAddon, dict[str, Any]]] = []
-        for media_type in media_types:
+        seen_requests: set[tuple[str, str, str]] = set()
+        for media_type in dict.fromkeys(media_types):
             for addon, catalog in self.catalogs(media_type, PROFILE_DEFAULT):
-                if catalog_supports_extra(catalog, "search"):
-                    requests.append((addon, catalog))
-                    break
+                if not catalog_supports_extra(catalog, "search"):
+                    continue
+                key = (
+                    addon.client.manifest_url,
+                    str(catalog.get("type") or ""),
+                    str(catalog.get("id") or ""),
+                )
+                if key in seen_requests:
+                    continue
+                seen_requests.add(key)
+                requests.append((addon, catalog))
+
         results = await asyncio.gather(
             *(
                 addon.client.get_catalog(
-                    str(catalog["type"]), str(catalog["id"]), {"search": query}
+                    str(catalog["type"]),
+                    str(catalog["id"]),
+                    {"search": clean_query},
                 )
                 for addon, catalog in requests
             ),
@@ -304,7 +322,44 @@ class StremioAddonManager:
                 enriched["_bridge_media_type"] = media_type
                 enriched["_bridge_catalog_addon"] = addon.name
                 metas.append(enriched)
-        return metas
+
+        query_key = _normalize_search_text(clean_query)
+        ranked = sorted(
+            enumerate(metas),
+            key=lambda item: (*_search_result_rank(item[1], query_key), item[0]),
+        )
+        return [meta for _, meta in ranked[:_MAX_SEARCH_RESULTS]]
+
+
+def _normalize_search_text(value: object) -> str:
+    """Normalize user and catalog titles for stable search-result ordering."""
+    text = unicodedata.normalize("NFKD", str(value or "").casefold())
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = "".join(char if char.isalnum() else " " for char in text)
+    return " ".join(text.split())
+
+
+def _search_result_rank(meta: dict[str, Any], query: str) -> tuple[int, int]:
+    """Put exact, prefix and substring title matches before provider order."""
+    title = _normalize_search_text(meta.get("name") or meta.get("title"))
+    comparable_title = _without_leading_article(title)
+    if title == query or comparable_title == query:
+        bucket = 0
+    elif title.startswith(query) or comparable_title.startswith(query):
+        bucket = 1
+    elif query and query in title:
+        bucket = 2
+    else:
+        bucket = 3
+    return bucket, abs(len(comparable_title) - len(query))
+
+
+def _without_leading_article(value: str) -> str:
+    """Ignore common leading articles when ordering title search results."""
+    words = value.split()
+    if words and words[0] in {"a", "an", "the", "el", "la", "los", "las", "un", "una"}:
+        return " ".join(words[1:])
+    return value
 
 
 def _append_subtitle(
@@ -363,7 +418,10 @@ def supports_resource(
         return False
     prefixes = matched.get("idPrefixes") or manifest.get("idPrefixes")
     if isinstance(prefixes, list) and prefixes:
-        return any(isinstance(prefix, str) and media_id.startswith(prefix) for prefix in prefixes)
+        return any(
+            isinstance(prefix, str) and media_id.startswith(prefix)
+            for prefix in prefixes
+        )
     return True
 
 
@@ -391,7 +449,9 @@ def catalog_required_extras(catalog: dict[str, Any]) -> list[str]:
     result: list[str] = []
     raw_required = catalog.get("extraRequired", [])
     if isinstance(raw_required, list):
-        result.extend(str(value) for value in raw_required if isinstance(value, str))
+        result.extend(
+            str(value) for value in raw_required if isinstance(value, str)
+        )
     extras = catalog.get("extra", [])
     if isinstance(extras, list):
         for extra in extras:
@@ -412,5 +472,6 @@ def stream_key(stream: dict[str, Any]) -> str:
         if isinstance(value, str) and value:
             return f"{field}:{value}"
     return "text:" + "|".join(
-        str(stream.get(field) or "") for field in ("name", "title", "description")
+        str(stream.get(field) or "")
+        for field in ("name", "title", "description")
     )
