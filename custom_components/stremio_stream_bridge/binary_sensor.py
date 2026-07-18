@@ -8,6 +8,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -66,7 +67,7 @@ async def async_setup_entry(
     current = {**entry.data, **entry.options}
     await install_secondary_stream_provider(
         runtime.manager,
-        runtime.server._session,
+        async_get_clientsession(hass),
         current.get(
             CONF_SECONDARY_STREAM_MANIFEST_URL,
             DEFAULT_SECONDARY_STREAM_MANIFEST,
