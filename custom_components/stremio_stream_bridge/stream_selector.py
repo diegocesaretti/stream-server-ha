@@ -19,6 +19,14 @@ _SEED_PATTERNS = (
     re.compile(r"(?:👤|🌱|seeders?|seeds?)\s*[:=]?\s*(\d+)", re.IGNORECASE),
     re.compile(r"(\d+)\s*(?:seeders?|seeds?)\b", re.IGNORECASE),
 )
+_H264_NAME_RE = re.compile(
+    r"(?<![a-z0-9])(?:x264|h[._ -]?264|avc)(?![a-z0-9])",
+    re.IGNORECASE,
+)
+_H265_NAME_RE = re.compile(
+    r"(?<![a-z0-9])(?:x265|h[._ -]?265|hevc)(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 
 def stream_text(stream: dict[str, Any]) -> str:
@@ -97,8 +105,32 @@ def parse_container(stream: dict[str, Any]) -> str | None:
     return None
 
 
+def parse_named_video_codec(stream: dict[str, Any]) -> str | None:
+    """Return H.264 or HEVC using only add-on names, descriptions and filename hints."""
+    text = stream_text(stream)
+    if _H265_NAME_RE.search(text):
+        return "HEVC"
+    if _H264_NAME_RE.search(text):
+        return "H.264"
+    return None
+
+
+def _named_codec_rank(stream: dict[str, Any], *, h264_available: bool) -> int:
+    """Prefer named H.264 results while retaining HEVC as a final fallback."""
+    if not h264_available:
+        return 0
+    codec = parse_named_video_codec(stream)
+    if codec == "H.264":
+        return 0
+    if codec == "HEVC":
+        return 2
+    return 1
+
+
 def parse_video_codec(stream: dict[str, Any]) -> str | None:
     """Return the video codec advertised by common torrent release names."""
+    if named_codec := parse_named_video_codec(stream):
+        return named_codec
     source = _source_text(stream)
     if any(marker in source for marker in ("x265", "h265", "h.265", "hevc")):
         return "HEVC"
@@ -254,6 +286,7 @@ def direct_play_compatibility_rank(stream: dict[str, Any]) -> tuple[int, int, in
         audio_rank + multichannel_rank,
     )
 
+
 def _filtered_candidates(
     streams: list[dict[str, Any]],
     max_size_gb: float,
@@ -292,8 +325,9 @@ def order_ideal_streams(
 ) -> list[dict[str, Any]]:
     """Rank all usable links for automatic playback and fallback.
 
-    Compatibility is applied first when requested, then the configured quality,
-    seed count and file size. The returned order is also the retry order.
+    Compatibility is applied first when requested. When an H.264/x264 name is
+    available it is preferred over unknown codecs and H.265/x265/HEVC names, then
+    quality, seed count and file size decide the retry order.
     """
     if not streams:
         return []
@@ -304,6 +338,9 @@ def order_ideal_streams(
             candidates = compatible
     target_map = {"2160p": 2160, "1080p": 1080, "720p": 720, "480p": 480}
     target = target_map.get(preferred_quality)
+    named_h264_available = any(
+        parse_named_video_codec(stream) == "H.264" for stream in candidates
+    )
 
     def quality_rank(quality: int) -> tuple[int, int]:
         if preferred_quality == "lowest":
@@ -326,6 +363,7 @@ def order_ideal_streams(
         )
         return (
             *compatibility,
+            _named_codec_rank(stream, h264_available=named_h264_available),
             *quality_rank(parse_quality(stream)),
             -parse_seeders(stream),
             size if size is not None else 9999,
@@ -360,6 +398,9 @@ def choose_best_stream(
 
     target_map = {"2160p": 2160, "1080p": 1080, "720p": 720, "480p": 480}
     target = target_map.get(preferred_quality)
+    named_h264_available = any(
+        parse_named_video_codec(stream) == "H.264" for stream in candidates
+    )
 
     def quality_rank(quality: int) -> tuple[int, int]:
         if preferred_quality == "lowest":
@@ -378,6 +419,7 @@ def choose_best_stream(
         quality = parse_quality(stream)
         size = parse_size_gb(stream)
         return (
+            _named_codec_rank(stream, h264_available=named_h264_available),
             *quality_rank(quality),
             -parse_seeders(stream),
             size if size is not None else 9999,

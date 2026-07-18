@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3
+
+- Añade filtros por nombre para `H.264`, `H264`, `x264` y `AVC` frente a `H.265`, `H265`, `x265` y `HEVC`.
+- Cuando existe al menos una fuente identificada como H.264, la prioriza antes de calidad, semillas y tamaño.
+- Conserva las fuentes H.265/HEVC como último fallback en lugar de eliminarlas definitivamente.
+- Si ninguna fuente declara H.264 por nombre, mantiene intacto el orden anterior.
+
 ## 0.5.2
 
 - Eliminó las respuestas de confirmación `ambiguous` y `series_needs_episode` del flujo normal del resolver.
