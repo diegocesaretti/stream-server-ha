@@ -44,12 +44,19 @@ jobs:
           bash -n stream_server/run.sh
 
       - name: Build amd64 app image
+        shell: bash
         run: |
-          docker build \
+          set -o pipefail
+          if ! docker build \
             --build-arg BUILD_VERSION=0.1.0 \
             --build-arg BUILD_ARCH=amd64 \
             --tag stremio-stream-engine:test \
-            stream_server
+            stream_server >docker-build.log 2>&1; then
+            echo "Docker build failed. Last 200 lines:"
+            tail -n 200 docker-build.log
+            exit 1
+          fi
+          tail -n 80 docker-build.log
 
       - name: Inspect image
         run: |
