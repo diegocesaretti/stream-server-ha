@@ -60,7 +60,7 @@ DEFAULT_PREFER_SMALLER_SIZE = False
 DEFAULT_LATIN_AUDIO_KEYWORDS = (
     "audio latino, español latino, castellano latino, spanish latino, dual latino, "
     "latino, latina, latam, latinoamérica, latin america, español, castellano, spanish, "
-    "lat, esp, spa, es, 🇦🇷, 🇧🇴, 🇨🇱, 🇨🇴, 🇨🇷, 🇪🇨, 🇲🇽, 🇵🇪, 🇺🇾, 🇻🇪"
+    "🇦🇷, 🇧🇴, 🇨🇱, 🇨🇴, 🇨🇷, 🇪🇨, 🇲🇽, 🇵🇪, 🇺🇾, 🇻🇪"
 )
 DEFAULT_HIDE_NON_LATIN_ITEMS = True
 DEFAULT_PREFERRED_AUDIO_LANGUAGES = "lat, esp, spa, es"
