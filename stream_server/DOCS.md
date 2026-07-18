@@ -1,6 +1,6 @@
 # Stremio Stream Engine
 
-This app provides a local torrent streaming backend for **Stremio Stream Bridge**. It is based on the MIT-licensed [`perpetus/stream-server`](https://github.com/perpetus/stream-server) project and uses its pure-Rust `librqbit` backend.
+This app provides a local torrent streaming backend for **Stremio Stream Bridge**. It is based on the MIT-licensed [`perpetus/stream-server`](https://github.com/perpetus/stream-server) project and uses the upstream-supported `libtorrent` backend.
 
 ## Installation
 
