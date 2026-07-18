@@ -8,6 +8,7 @@ NAME = "Stremio Stream Bridge"
 CONF_STREAMING_SERVER_URL = "streaming_server_url"
 CONF_CATALOG_MANIFEST_URLS = "catalog_manifest_urls"
 CONF_STREAM_MANIFEST_URLS = "stream_manifest_urls"
+CONF_SECONDARY_STREAM_MANIFEST_URL = "secondary_stream_manifest_url"
 CONF_SUBTITLE_MANIFEST_URLS = "subtitle_manifest_urls"
 CONF_LATIN_MANIFEST_URLS = "latin_manifest_urls"  # Legacy compatibility key.
 CONF_SPORTS_MANIFEST_URLS = "sports_manifest_urls"
@@ -44,6 +45,7 @@ CONF_SUBTITLE_BASE_URL = "subtitle_base_url"
 DEFAULT_STREAMING_SERVER_URL = "http://192.168.1.145:11470"
 DEFAULT_CINEMETA_MANIFEST = "https://v3-cinemeta.strem.io/manifest.json"
 DEFAULT_TORRENTIO_MANIFEST = "https://torrentio.strem.fun/manifest.json"
+DEFAULT_SECONDARY_STREAM_MANIFEST = ""
 DEFAULT_OPENSUBTITLES_MANIFEST = "https://opensubtitles-v3.strem.io/manifest.json"
 # Audio Latino now filters the main stream provider. Kept empty so new entries do
 # not preload a second provider while older saved values remain harmlessly ignored.
