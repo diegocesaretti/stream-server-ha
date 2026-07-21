@@ -1,4 +1,4 @@
-"""Connectivity sensor for Stremio Stream Bridge."""
+"""Connectivity and linked-account sensors for Stremio Stream Bridge."""
 
 from __future__ import annotations
 
@@ -13,7 +13,17 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import StremioBridgeRuntime
+from .account_bridge import (
+    StremioAccountRuntime,
+    async_install_account_bridge,
+    remove_account_runtime,
+)
+from .account_media_patch import install_account_media_patch
+from .account_options_patch import install_account_options_patch
+from .account_playback_tracker import StremioAccountPlaybackTracker
 from .const import (
+    CONF_ACCOUNT_ENABLED,
+    CONF_ACCOUNT_PROVIDER_MODE,
     CONF_AUDIO_MODE,
     CONF_CAST_COMPATIBILITY_FILTER,
     CONF_CAST_RESET_BEFORE_PLAY,
@@ -30,6 +40,8 @@ from .const import (
     CONF_PREFER_SMALLER_SIZE,
     CONF_SECONDARY_STREAM_MANIFEST_URL,
     CONF_STOP_BEFORE_PLAY,
+    DEFAULT_ACCOUNT_ENABLED,
+    DEFAULT_ACCOUNT_PROVIDER_MODE,
     DEFAULT_AUDIO_MODE,
     DEFAULT_CAST_COMPATIBILITY_FILTER,
     DEFAULT_CAST_RESET_BEFORE_PLAY,
@@ -63,9 +75,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the connectivity sensor and entry-scoped source preferences."""
+    """Set up connectivity plus optional Stremio account support."""
     install_source_options_patch()
+    install_account_options_patch()
     install_latin_media_search_patch()
+    install_account_media_patch()
+
     runtime: StremioBridgeRuntime = entry.runtime_data
     current = {**entry.data, **entry.options}
     await install_secondary_stream_provider(
@@ -76,6 +91,8 @@ async def async_setup_entry(
             DEFAULT_SECONDARY_STREAM_MANIFEST,
         ),
     )
+    account_runtime = await async_install_account_bridge(hass, entry, runtime)
+
     install_source_preferences(
         runtime.manager,
         prefer_h264=bool(current.get(CONF_PREFER_H264, DEFAULT_PREFER_H264)),
@@ -99,7 +116,16 @@ async def async_setup_entry(
             DEFAULT_PREFERRED_AUDIO_LANGUAGES,
         ),
     )
-    async_add_entities([StremioBridgeConnectivitySensor(entry, runtime)])
+
+    entities: list[BinarySensorEntity] = [
+        StremioBridgeConnectivitySensor(entry, runtime)
+    ]
+    if account_runtime is not None:
+        account_runtime.tracker = StremioAccountPlaybackTracker(
+            hass, entry, account_runtime
+        )
+        entities.append(StremioAccountLinkedSensor(entry, account_runtime))
+    async_add_entities(entities)
 
 
 class StremioBridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):
@@ -203,6 +229,12 @@ class StremioBridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):
             "direct_ideal_on_select": current.get(
                 CONF_PLAY_IDEAL_ON_SELECT, DEFAULT_PLAY_IDEAL_ON_SELECT
             ),
+            "account_enabled": current.get(
+                CONF_ACCOUNT_ENABLED, DEFAULT_ACCOUNT_ENABLED
+            ),
+            "account_provider_mode": current.get(
+                CONF_ACCOUNT_PROVIDER_MODE, DEFAULT_ACCOUNT_PROVIDER_MODE
+            ),
             "latin_profile_available": self.coordinator.manager.has_profile(
                 PROFILE_LATIN
             ),
@@ -210,3 +242,48 @@ class StremioBridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):
                 PROFILE_SPORTS
             ),
         }
+
+
+class StremioAccountLinkedSensor(CoordinatorEntity, BinarySensorEntity):
+    """Expose safe account status and keep account polling active."""
+
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_has_entity_name = True
+    _attr_name = "Cuenta Stremio"
+
+    def __init__(self, entry: ConfigEntry, runtime: StremioAccountRuntime) -> None:
+        super().__init__(runtime.coordinator)
+        self._entry = entry
+        self._runtime = runtime
+        self._attr_unique_id = f"{entry.entry_id}_stremio_account"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": "Stremio / Home Assistant",
+            "model": "Aggregate Stream Bridge",
+        }
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        data = self.coordinator.data or {}
+        user = data.get("user", {}) if isinstance(data.get("user"), dict) else {}
+        return {
+            "email": user.get("email"),
+            "provider_mode": self._runtime.provider_mode,
+            "library_count": data.get("library_count", 0),
+            "continue_watching_count": data.get("continue_watching_count", 0),
+            "account_addon_count": data.get("addon_count", 0),
+            "account_addons": data.get("addons", []),
+            "progress_sync": True,
+            "password_stored": False,
+        }
+
+    async def async_will_remove_from_hass(self) -> None:
+        await super().async_will_remove_from_hass()
+        if self._runtime.tracker is not None:
+            await self._runtime.tracker.async_stop()
+        remove_account_runtime(self.hass, self._entry.entry_id)

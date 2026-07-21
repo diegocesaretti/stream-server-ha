@@ -29,7 +29,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "Proveedores y reproducción",
+        "title": "Proveedores, cuenta y reproducción",
         "data": {
           "streaming_server_url": "URL del stream-server de la PC",
           "default_media_player": "Reproductor predeterminado",
@@ -39,6 +39,10 @@
           "latin_manifest_urls": "Manifests antiguos de Audio Latino (ignorados)",
           "sports_manifest_urls": "Manifests de F1 y Deportes",
           "subtitle_manifest_urls": "Manifests de subtítulos",
+          "account_enabled": "Vincular una cuenta de Stremio",
+          "account_email": "Correo de la cuenta Stremio",
+          "account_password": "Contraseña de la cuenta Stremio",
+          "account_provider_mode": "Origen de proveedores",
           "latin_audio_keywords": "Palabras clave de audio Español/Latino",
           "hide_non_latin_items": "Ocultar títulos sin audio Español/Latino",
           "preferred_audio_languages": "Códigos preferidos de pista de audio interna",
@@ -73,6 +77,10 @@
           "latin_manifest_urls": "Ya no se usa. Podés vaciar este campo; los valores antiguos se ignoran y nunca se consultan.",
           "sports_manifest_urls": "StremVerse viene precargado para F1/deportes. Un fallo temporal no bloquea el resto de la integración.",
           "subtitle_manifest_urls": "Una URL por línea. Dejalo vacío para desactivar.",
+          "account_enabled": "Agrega Mi biblioteca, Continuar viendo, reanudación y sincronización de progreso. La reproducción sigue usando el ranking, fallback y stream-server actuales de esta integración.",
+          "account_email": "Se usa junto con la contraseña solamente para obtener una clave de autenticación de Stremio.",
+          "account_password": "Se usa únicamente al guardar para obtener la clave; nunca queda almacenada. Después dejala vacía para conservar la sesión existente.",
+          "account_provider_mode": "manual usa sólo los manifests configurados; account usa los add-ons de la cuenta para catálogo, streams y subtítulos; hybrid combina ambos y elimina duplicados. Deportes sigue configurado por separado.",
           "latin_audio_keywords": "Marcadores separados por comas, punto y coma o líneas. Se buscan en name, title, description y behaviorHints.filename, ignorando acentos y puntuación.",
           "hide_non_latin_items": "Comprueba fuentes antes de mostrar tarjetas del catálogo Español/Latino y guarda el resultado 30 minutos. En series revisa episodios representativos. Un error temporal deja la tarjeta visible.",
           "preferred_audio_languages": "Códigos ordenados para archivos con varias pistas en stream-server GPU compatibles. Predeterminado: lat, esp, spa, es. Si ninguna pista coincide, usa la predeterminada original.",
@@ -105,6 +113,7 @@
   },
   "error": {
     "cannot_connect": "No se pudo conectar con el stream-server principal. Revisá la IP y el puerto 11470.",
-    "invalid_config": "La configuración principal no es válida. Revisá las URLs de catálogo y streams principales."
+    "invalid_config": "La configuración principal no es válida. Revisá las URLs de catálogo y streams principales.",
+    "account_auth_failed": "No se pudo autenticar la cuenta Stremio. Revisá el correo y la contraseña, o ingresá una contraseña nueva para renovar la clave guardada."
   }
 }

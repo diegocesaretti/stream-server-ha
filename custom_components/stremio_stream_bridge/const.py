@@ -41,6 +41,11 @@ CONF_SUBTITLE_MODE = "subtitle_mode"
 CONF_SUBTITLE_LANGUAGES = "subtitle_languages"
 CONF_SUBTITLE_CONVERT_VTT = "subtitle_convert_vtt"
 CONF_SUBTITLE_BASE_URL = "subtitle_base_url"
+CONF_ACCOUNT_ENABLED = "account_enabled"
+CONF_ACCOUNT_EMAIL = "account_email"
+CONF_ACCOUNT_PASSWORD = "account_password"  # Options-form input; never persisted.
+CONF_ACCOUNT_AUTH_KEY = "account_auth_key"
+CONF_ACCOUNT_PROVIDER_MODE = "account_provider_mode"
 
 DEFAULT_STREAMING_SERVER_URL = "http://192.168.1.145:11470"
 DEFAULT_CINEMETA_MANIFEST = "https://v3-cinemeta.strem.io/manifest.json"
@@ -82,10 +87,20 @@ DEFAULT_SUBTITLE_LANGUAGES = "spa, eng"
 DEFAULT_SUBTITLE_CONVERT_VTT = True
 DEFAULT_SUBTITLE_BASE_URL = ""
 DEFAULT_SCAN_INTERVAL_SECONDS = 60
+DEFAULT_ACCOUNT_ENABLED = False
+DEFAULT_ACCOUNT_PROVIDER_MODE = "hybrid"
 
 QUALITY_OPTIONS = ["auto", "2160p", "1080p", "720p", "480p", "lowest"]
 AUDIO_MODE_OPTIONS = ["automatic", "direct", "force_transcode"]
 SUBTITLE_MODE_OPTIONS = ["automatic", "disabled"]
+ACCOUNT_PROVIDER_MANUAL = "manual"
+ACCOUNT_PROVIDER_ACCOUNT = "account"
+ACCOUNT_PROVIDER_HYBRID = "hybrid"
+ACCOUNT_PROVIDER_MODES = [
+    ACCOUNT_PROVIDER_MANUAL,
+    ACCOUNT_PROVIDER_ACCOUNT,
+    ACCOUNT_PROVIDER_HYBRID,
+]
 
 PROFILE_DEFAULT = "default"
 PROFILE_LATIN = "latin"

@@ -29,7 +29,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "Providers and playback",
+        "title": "Providers, account and playback",
         "data": {
           "streaming_server_url": "PC stream-server URL",
           "default_media_player": "Default media player",
@@ -39,6 +39,10 @@
           "latin_manifest_urls": "Legacy Latin Audio manifests (ignored)",
           "sports_manifest_urls": "F1 and Sports manifests",
           "subtitle_manifest_urls": "Subtitle manifests",
+          "account_enabled": "Link a Stremio account",
+          "account_email": "Stremio account email",
+          "account_password": "Stremio account password",
+          "account_provider_mode": "Provider source mode",
           "latin_audio_keywords": "Spanish/Latin audio keywords",
           "hide_non_latin_items": "Hide titles without Spanish/Latin audio",
           "preferred_audio_languages": "Preferred internal audio-track codes",
@@ -73,6 +77,10 @@
           "latin_manifest_urls": "No longer used. Clear this field; saved legacy values are ignored and never contacted.",
           "sports_manifest_urls": "StremVerse is preloaded for F1/sports. A temporary failure does not block the rest of the integration.",
           "subtitle_manifest_urls": "One URL per line. Leave empty to disable.",
+          "account_enabled": "Adds My Stremio Library, Continue Watching, resume and progress synchronization. Playback still uses this bridge's existing ranking, fallback and stream-server pipeline.",
+          "account_email": "Used with the password only to obtain a Stremio auth key.",
+          "account_password": "Used only when saving to exchange it for an auth key; it is never stored. Leave blank later to keep the existing login.",
+          "account_provider_mode": "manual uses only configured manifests; account uses the account add-ons for catalog, streams and subtitles; hybrid merges both and removes duplicates. Sports remains separately configured.",
           "latin_audio_keywords": "Comma, semicolon or line separated markers checked in stream name, title, description and behaviorHints.filename. Matching ignores accents and punctuation.",
           "hide_non_latin_items": "Checks streams before showing Spanish/Latin catalog cards and caches the result for 30 minutes. Series use representative episodes. Temporary provider errors keep the card visible.",
           "preferred_audio_languages": "Ordered codes used by compatible GPU stream-server builds for multi-track files. Default: lat, esp, spa, es. If no track matches, the file's original default is used.",
@@ -105,6 +113,7 @@
   },
   "error": {
     "cannot_connect": "Could not connect to the main stream-server. Check its IP address and port 11470.",
-    "invalid_config": "The core configuration is invalid. Check the catalog and main stream URLs."
+    "invalid_config": "The core configuration is invalid. Check the catalog and main stream URLs.",
+    "account_auth_failed": "Could not authenticate the Stremio account. Check the email/password or enter a new password to renew the saved auth key."
   }
 }
