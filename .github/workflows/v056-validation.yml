@@ -54,6 +54,10 @@ jobs:
             tests/test_server_diagnostics.py \
             tests/test_secondary_provider_marker.py
 
+      - name: Run seed and low-power policy tests
+        if: always()
+        run: pytest -q tests/test_seed_and_low_power_policy.py
+
       - name: Run Stremio account hybrid tests
         if: always()
         run: pytest -q tests/test_stremio_account_hybrid.py
