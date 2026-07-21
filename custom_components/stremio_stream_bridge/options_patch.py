@@ -6,28 +6,41 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.helpers.selector import BooleanSelector, TextSelector, TextSelectorConfig
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+)
 
 from .const import (
     CONF_HIDE_NON_LATIN_ITEMS,
     CONF_LATIN_AUDIO_KEYWORDS,
+    CONF_LOW_POWER_STREAM_SERVER,
+    CONF_MIN_TORRENT_SEEDERS,
     CONF_PREFERRED_AUDIO_LANGUAGES,
     CONF_PREFER_H264,
     CONF_PREFER_SMALLER_SIZE,
     CONF_SECONDARY_STREAM_MANIFEST_URL,
     DEFAULT_HIDE_NON_LATIN_ITEMS,
     DEFAULT_LATIN_AUDIO_KEYWORDS,
+    DEFAULT_LOW_POWER_STREAM_SERVER,
+    DEFAULT_MIN_TORRENT_SEEDERS,
     DEFAULT_PREFERRED_AUDIO_LANGUAGES,
     DEFAULT_PREFER_H264,
     DEFAULT_PREFER_SMALLER_SIZE,
     DEFAULT_SECONDARY_STREAM_MANIFEST,
 )
+from .source_policy import install_source_policy_patch
 
 
 def install_source_options_patch() -> None:
-    """Append v0.5.6 fields without replacing the established config flow."""
+    """Append source-policy fields without replacing the established config flow."""
     from .config_flow import StremioStreamBridgeOptionsFlow
 
+    install_source_policy_patch()
     if getattr(StremioStreamBridgeOptionsFlow, "_bridge_source_options_patched", False):
         return
 
@@ -87,6 +100,27 @@ def install_source_options_patch() -> None:
                     default=displayed.get(
                         CONF_PREFER_SMALLER_SIZE,
                         DEFAULT_PREFER_SMALLER_SIZE,
+                    ),
+                ): BooleanSelector(),
+                vol.Required(
+                    CONF_MIN_TORRENT_SEEDERS,
+                    default=displayed.get(
+                        CONF_MIN_TORRENT_SEEDERS,
+                        DEFAULT_MIN_TORRENT_SEEDERS,
+                    ),
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=500,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_LOW_POWER_STREAM_SERVER,
+                    default=displayed.get(
+                        CONF_LOW_POWER_STREAM_SERVER,
+                        DEFAULT_LOW_POWER_STREAM_SERVER,
                     ),
                 ): BooleanSelector(),
             }
