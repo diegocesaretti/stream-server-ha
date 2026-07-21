@@ -42,7 +42,7 @@ jobs:
               print(f"validated {path}")
           PY
 
-      - name: Run focused regression tests
+      - name: Run existing focused regressions
         run: |
           pytest -q \
             tests/test_name_codec_filter.py \
@@ -52,5 +52,7 @@ jobs:
             tests/test_latin_provider_fallback.py \
             tests/test_latin_search_filter.py \
             tests/test_server_diagnostics.py \
-            tests/test_secondary_provider_marker.py \
-            tests/test_stremio_account_hybrid.py
+            tests/test_secondary_provider_marker.py
+
+      - name: Run Stremio account hybrid tests
+        run: pytest -q tests/test_stremio_account_hybrid.py
