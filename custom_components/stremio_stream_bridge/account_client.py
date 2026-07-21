@@ -270,14 +270,39 @@ class StremioAccountClient:
             state = {}
             updated["state"] = state
         position_ms = max(0, int(position_seconds * 1000))
-        duration_ms = max(position_ms, int(duration_seconds * 1000))
-        progress = position_ms / duration_ms if duration_ms > 0 else 0.0
+        reported_duration_ms = max(0, int(duration_seconds * 1000))
+        existing_duration_ms = max(0, int(_as_number(state.get("duration"), 0)))
+        duration_ms = max(reported_duration_ms, existing_duration_ms)
+        previous_video_id = str(state.get("video_id") or "")
+        previous_offset_ms = max(0, int(_as_number(state.get("timeOffset"), 0)))
+        time_watched_ms = max(0, int(_as_number(state.get("timeWatched"), 0)))
+        overall_watched_ms = max(
+            0, int(_as_number(state.get("overallTimeWatched"), 0))
+        )
+        if previous_video_id and previous_video_id != media_id:
+            overall_watched_ms += time_watched_ms
+            time_watched_ms = 0
+            previous_offset_ms = position_ms
+            state["flaggedWatched"] = 0
+        elif position_ms > previous_offset_ms:
+            # Cap one polling delta so a forward seek is not counted as watched time.
+            delta_ms = min(position_ms - previous_offset_ms, 120_000)
+            time_watched_ms += delta_ms
+            overall_watched_ms += delta_ms
         now = utc_iso_ms()
         state["timeOffset"] = position_ms
-        state["duration"] = duration_ms
+        if duration_ms > 0:
+            state["duration"] = duration_ms
+        state["timeWatched"] = time_watched_ms
+        state["overallTimeWatched"] = overall_watched_ms
         state["lastWatched"] = now
         state["video_id"] = media_id
-        state["flaggedWatched"] = 1 if progress >= 0.9 else 0
+        if duration_ms > 0 and time_watched_ms >= duration_ms * 0.9:
+            if not bool(state.get("flaggedWatched")):
+                state["timesWatched"] = max(
+                    0, int(_as_number(state.get("timesWatched"), 0))
+                ) + 1
+            state["flaggedWatched"] = 1
         if media_type == "series" and media_id.count(":") >= 2:
             parts = media_id.split(":")
             state["season"] = _as_optional_int(parts[-2]) or 0
